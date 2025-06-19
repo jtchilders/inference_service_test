@@ -1,0 +1,92 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Cursor Rules for Inference Service Test Project
+
+## Project Overview
+This project implements an agentic workflow for hyperparameter optimization on CIFAR-100 using:
+- Crux (ALCF CPU supercomputer) - runs the main agent orchestrator
+- Sophia (ALCF Nvidia DGX supercomputer) - provides LLM inference for hyperparameter suggestions
+- Aurora (ALCF GPU supercomputer) - runs the actual training jobs
+
+## Code Style Guidelines
+- Use 3-space indentation (not 4)
+- Follow PEP 8 for Python code
+- Use type hints for all function parameters and return values
+- Include comprehensive docstrings for all functions and classes
+- Use logging with format "DD-MM HH:MM" for timestamps
+
+## Architecture Patterns
+- **Agents**: Modular components that handle specific tasks (hyperparameter suggestion, job scheduling)
+- **Training**: PyTorch-based training pipeline with configurable models
+- **Utils**: Reusable utilities for data loading, metrics calculation, and result analysis
+- **Jobs**: PBS job templates for Aurora submission
+
+## Key Components
+
+### Agents (`src/agents/`)
+- `main.py`: Orchestrates the entire workflow
+- `hyperparam_agent.py`: Communicates with Sophia LLM service
+- `job_scheduler.py`: Manages PBS job submission to Aurora
+- Agenst use the LangGraph and LangChain frameworks
+
+### Training (`src/training/`)
+- `train.py`: Main training entry point
+- `model.py`: PyTorch model definitions (ResNet, VGG, DenseNet, Custom CNN)
+- `trainer.py`: Training loop with validation and logging
+
+### Utils (`src/utils/`)
+- `data_utils.py`: CIFAR-100 data loading and result parsing
+- `metrics.py`: AUC calculation and other evaluation metrics
+
+## Configuration
+- Use YAML configuration files for system-specific settings
+- Environment variables for sensitive information (API keys, SSH keys)
+- Command-line arguments for experiment parameters
+
+## Error Handling
+- Comprehensive exception handling with meaningful error messages
+- Graceful degradation when services are unavailable
+- Fallback mechanisms (e.g., random hyperparameters if LLM fails)
+
+## Logging
+- Structured logging with appropriate levels (DEBUG, INFO, WARNING, ERROR)
+- Separate log files for different components
+- Console output for real-time monitoring
+
+## Testing
+- Use the `notebooks/exploration.ipynb` for local prototyping
+- Test individual components before full deployment
+- Validate metrics calculations with known data
+
+## Deployment Considerations
+- Ensure all dependencies are in `requirements.txt`
+- Use virtual environments for Python package management
+- Set up proper SSH key authentication for Aurora access
+- Configure PBS job templates for Aurora's specific requirements
+
+## Performance Optimization
+- Use appropriate batch sizes for GPU memory constraints
+- Implement early stopping to avoid wasted compute time
+- Monitor training progress and adjust hyperparameters accordingly
+- Use data augmentation for better generalization
+
+## Security
+- Never hardcode API keys or passwords
+- Use environment variables for sensitive configuration
+- Validate all inputs to prevent injection attacks
+- Secure SSH key storage and permissions
+
+## Monitoring and Debugging
+- Implement comprehensive logging throughout the pipeline
+- Use TensorBoard for training visualization
+- Save checkpoints for model recovery
+- Generate detailed experiment reports
+
+## File Organization
+- Keep related functionality together
+- Use clear, descriptive file and directory names
+- Maintain separation between agents, training, and utilities
+- Document any non-standard file locations or naming conventions 

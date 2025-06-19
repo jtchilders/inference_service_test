@@ -1,0 +1,94 @@
+#!/bin/bash
+#PBS -N cifar100_train_${JOB_ID}
+#PBS -l nodes=1:ppn=64
+#PBS -l walltime=02:00:00
+#PBS -q ${QUEUE}
+#PBS -o ${OUTPUT_DIR}/job_${JOB_ID}.out
+#PBS -e ${OUTPUT_DIR}/job_${JOB_ID}.err
+#PBS -V
+
+# CIFAR-100 Training Job Template
+# This template will be populated with hyperparameters by the job scheduler
+
+set -e
+
+# Load necessary modules (adjust for Aurora)
+module load python/3.9
+module load cuda/11.8
+module load cudnn/8.6
+
+# Set environment variables
+export CUDA_VISIBLE_DEVICES=0
+export PYTHONPATH="${PYTHONPATH}:${PBS_O_WORKDIR}/src"
+
+# Create output directory
+mkdir -p ${OUTPUT_DIR}
+
+# Log job start
+echo "Job started at: $(date)"
+echo "Job ID: ${JOB_ID}"
+echo "Working directory: ${PBS_O_WORKDIR}"
+echo "Output directory: ${OUTPUT_DIR}"
+
+# Hyperparameters (will be replaced by job scheduler)
+# Model parameters
+MODEL_TYPE="${MODEL_TYPE}"
+HIDDEN_SIZE="${HIDDEN_SIZE}"
+NUM_LAYERS="${NUM_LAYERS}"
+DROPOUT_RATE="${DROPOUT_RATE}"
+
+# Training parameters
+LEARNING_RATE="${LEARNING_RATE}"
+BATCH_SIZE="${BATCH_SIZE}"
+NUM_EPOCHS="${NUM_EPOCHS}"
+WEIGHT_DECAY="${WEIGHT_DECAY}"
+
+# Data parameters
+DATA_DIR="${DATA_DIR}"
+NUM_WORKERS="${NUM_WORKERS}"
+
+# Log hyperparameters
+echo "=== Hyperparameters ==="
+echo "Model Type: ${MODEL_TYPE}"
+echo "Hidden Size: ${HIDDEN_SIZE}"
+echo "Number of Layers: ${NUM_LAYERS}"
+echo "Dropout Rate: ${DROPOUT_RATE}"
+echo "Learning Rate: ${LEARNING_RATE}"
+echo "Batch Size: ${BATCH_SIZE}"
+echo "Number of Epochs: ${NUM_EPOCHS}"
+echo "Weight Decay: ${WEIGHT_DECAY}"
+echo "Data Directory: ${DATA_DIR}"
+echo "Number of Workers: ${NUM_WORKERS}"
+echo "======================"
+
+# Activate virtual environment if specified
+if [ ! -z "${VENV_PATH}" ]; then
+   source ${VENV_PATH}/bin/activate
+   echo "Activated virtual environment: ${VENV_PATH}"
+fi
+
+# Run the training script
+cd ${PBS_O_WORKDIR}
+
+python src/training/train.py \
+   --model_type ${MODEL_TYPE} \
+   --hidden_size ${HIDDEN_SIZE} \
+   --num_layers ${NUM_LAYERS} \
+   --dropout_rate ${DROPOUT_RATE} \
+   --learning_rate ${LEARNING_RATE} \
+   --batch_size ${BATCH_SIZE} \
+   --num_epochs ${NUM_EPOCHS} \
+   --weight_decay ${WEIGHT_DECAY} \
+   --data_dir ${DATA_DIR} \
+   --num_workers ${NUM_WORKERS} \
+   --output_dir ${OUTPUT_DIR} \
+   --job_id ${JOB_ID}
+
+# Log job completion
+echo "Job completed at: $(date)"
+echo "Exit code: $?"
+
+# Copy results to a more permanent location if needed
+if [ -f "${OUTPUT_DIR}/results.json" ]; then
+   echo "Training results saved to: ${OUTPUT_DIR}/results.json"
+fi 

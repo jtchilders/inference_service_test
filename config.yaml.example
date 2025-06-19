@@ -1,0 +1,60 @@
+# Sample configuration file for the agentic workflow
+# Copy this file to config.yaml and modify with your settings
+
+# Sophia LLM service configuration
+sophia:
+  url: "https://data-portal-dev.cels.anl.gov/resource_server/sophia/vllm/v1"
+
+# Aurora PBS job configuration
+# Aurora uses MFA via mobile app, not SSH keys
+# SSH connections use ControlMaster to reuse existing authenticated sessions
+aurora:
+  host: "aurora"
+  user: "parton"  # Set via environment variable
+  # SSH ControlMaster configuration for Aurora authentication
+  control_master: true
+  pbs_template: "jobs/train_cifar100.pbs.template"
+
+# Working directory configuration
+# Hierarchical structure: {working_dir_base}/{launch_iteration_base}/{job_base}
+working_dirs:
+  # Base directory on Aurora for all workflow runs
+  aurora_base: "/lus/flare/projects/datascience/{user}/workflows"
+  # Base directory for local results and logs
+  local_base: "results"
+  # Directory naming patterns
+  launch_iteration_pattern: "{timestamp}_{experiment_id}"  # e.g., "20241201_143022_exp_001"
+  job_pattern: "job_{job_id}"  # e.g., "job_exp_001_iter_0"
+
+# Data and results configuration
+data:
+  dir: "data/cifar-100-python"
+
+results:
+  dir: "results"
+
+# Workflow configuration
+polling_interval: 60  # seconds between job status checks
+
+# Optional: Virtual environment path on Aurora
+# aurora:
+#   venv_path: "/path/to/venv/on/aurora"
+
+# Optional: Queue configuration
+# aurora:
+#   default_queue: "workq"
+#   max_jobs: 10
+
+# Optional: Model and training defaults
+# training:
+#   default_model_type: "resnet18"
+#   default_batch_size: 128
+#   default_learning_rate: 0.001
+#   default_num_epochs: 50
+
+# Optional: Logging configuration
+# logging:
+#   level: "INFO"
+#   file: "logs/agent_workflow.log"
+#   max_size: "100MB"
+#   backup_count: 5 
