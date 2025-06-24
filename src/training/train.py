@@ -2,6 +2,7 @@
 """
 Main training script for CIFAR-100 classification.
 Entry point that loads hyperparameters and kicks off a single training run.
+Optimized for Aurora Intel GPU architecture with Intel PyTorch Extension (IPEX).
 """
 
 import argparse
@@ -16,6 +17,15 @@ from typing import Dict, Any
 
 # Add src to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
+
+# Import Intel PyTorch Extension (IPEX) for Aurora optimization
+try:
+   import intel_extension_for_pytorch as ipex
+   IPEX_AVAILABLE = True
+   logging.info("Intel PyTorch Extension (IPEX) imported successfully")
+except ImportError:
+   IPEX_AVAILABLE = False
+   logging.warning("Intel PyTorch Extension (IPEX) not available")
 
 from training.trainer import Trainer
 from training.model import get_model
@@ -38,9 +48,83 @@ def setup_logging(log_level: str = "INFO") -> None:
    )
 
 
+def setup_aurora_environment() -> None:
+   """Setup Aurora-specific environment variables and configurations."""
+   # Set Intel oneAPI environment variables if not already set
+   if 'OMP_NUM_THREADS' not in os.environ:
+      os.environ['OMP_NUM_THREADS'] = '1'
+   
+   if 'OMP_PLACES' not in os.environ:
+      os.environ['OMP_PLACES'] = 'cores'
+   
+   if 'OMP_PROC_BIND' not in os.environ:
+      os.environ['OMP_PROC_BIND'] = 'close'
+   
+   # Intel MPI settings for Aurora
+   if 'I_MPI_PIN_DOMAIN' not in os.environ:
+      os.environ['I_MPI_PIN_DOMAIN'] = 'auto:compact'
+   
+   if 'I_MPI_PIN_ORDER' not in os.environ:
+      os.environ['I_MPI_PIN_ORDER'] = 'compact'
+   
+   # Intel GPU settings for Aurora
+   if 'ZE_AFFINITY_MASK' not in os.environ:
+      os.environ['ZE_AFFINITY_MASK'] = '0.0'
+   
+   if 'SYCL_DEVICE_FILTER' not in os.environ:
+      os.environ['SYCL_DEVICE_FILTER'] = 'level_zero:gpu'
+   
+   if 'ONEAPI_DEVICE_SELECTOR' not in os.environ:
+      os.environ['ONEAPI_DEVICE_SELECTOR'] = 'level_zero:gpu'
+
+
+def detect_device() -> str:
+   """Detect the best available device for PyTorch on Aurora."""
+   import torch
+   
+   # Check for Intel GPU with IPEX support (Aurora's primary GPU type)
+   if IPEX_AVAILABLE and hasattr(torch, 'xpu') and torch.xpu.is_available():
+      device_count = torch.xpu.device_count()
+      if device_count > 0:
+         logging.info(f"Found {device_count} Intel GPU(s) with IPEX support")
+         return "xpu"
+   
+   # Check for Intel GPU without IPEX (fallback)
+   if hasattr(torch, 'xpu') and torch.xpu.is_available():
+      device_count = torch.xpu.device_count()
+      if device_count > 0:
+         logging.info(f"Found {device_count} Intel GPU(s) without IPEX")
+         return "xpu"
+   
+   # Check for CUDA (fallback)
+   if torch.cuda.is_available():
+      device_count = torch.cuda.device_count()
+      logging.info(f"Found {device_count} CUDA GPU(s)")
+      return "cuda"
+   
+   # Fallback to CPU
+   logging.info("No GPU detected, using CPU")
+   return "cpu"
+
+
+def optimize_model_for_intel(model, optimizer, device_type: str):
+   """Optimize model and optimizer using Intel PyTorch Extension."""
+   if not IPEX_AVAILABLE or device_type != "xpu":
+      return model, optimizer
+   
+   try:
+      # Optimize model and optimizer for Intel GPU
+      model, optimizer = ipex.optimize(model, optimizer=optimizer)
+      logging.info("Model and optimizer optimized with Intel PyTorch Extension")
+      return model, optimizer
+   except Exception as e:
+      logging.warning(f"Failed to optimize with IPEX: {e}")
+      return model, optimizer
+
+
 def parse_arguments() -> argparse.Namespace:
    """Parse command line arguments."""
-   parser = argparse.ArgumentParser(description="CIFAR-100 Training Script")
+   parser = argparse.ArgumentParser(description="CIFAR-100 Training Script for Aurora")
    
    # Model parameters
    parser.add_argument("--model_type", type=str, default="resnet18",
@@ -75,6 +159,14 @@ def parse_arguments() -> argparse.Namespace:
    parser.add_argument("--job_id", type=str, required=True,
                       help="Job ID for tracking")
    
+   # Device parameters
+   parser.add_argument("--device", type=str, choices=["auto", "xpu", "cuda", "cpu"],
+                      default="auto", help="Device to use for training")
+   
+   # IPEX parameters
+   parser.add_argument("--use_ipex", action="store_true", default=True,
+                      help="Use Intel PyTorch Extension for optimization")
+   
    # Logging
    parser.add_argument("--log_level", type=str, default="INFO",
                       choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -103,6 +195,9 @@ def save_results(results: Dict[str, Any], output_dir: str, job_id: str) -> None:
 def main():
    """Main training function."""
    
+   # Setup Aurora environment
+   setup_aurora_environment()
+   
    # Parse arguments
    args = parse_arguments()
    
@@ -117,6 +212,29 @@ def main():
    logger.info(f"Starting CIFAR-100 training job: {args.job_id}")
    logger.info(f"Output directory: {output_dir}")
    
+   # Detect and configure device
+   if args.device == "auto":
+      device_type = detect_device()
+   else:
+      device_type = args.device
+   
+   logger.info(f"Using device type: {device_type}")
+   
+   # Log system information
+   import torch
+   logger.info(f"PyTorch version: {torch.__version__}")
+   logger.info(f"Intel PyTorch Extension available: {IPEX_AVAILABLE}")
+   logger.info(f"Intel GPU support: {hasattr(torch, 'xpu')}")
+   
+   if device_type == "xpu":
+      logger.info(f"Intel GPU count: {torch.xpu.device_count()}")
+      for i in range(torch.xpu.device_count()):
+         logger.info(f"Intel GPU {i}: {torch.xpu.get_device_name(i)}")
+   elif device_type == "cuda":
+      logger.info(f"CUDA GPU count: {torch.cuda.device_count()}")
+      for i in range(torch.cuda.device_count()):
+         logger.info(f"CUDA GPU {i}: {torch.cuda.get_device_name(i)}")
+   
    # Log hyperparameters
    hyperparams = {
       "model_type": args.model_type,
@@ -128,7 +246,9 @@ def main():
       "num_epochs": args.num_epochs,
       "weight_decay": args.weight_decay,
       "data_dir": args.data_dir,
-      "num_workers": args.num_workers
+      "num_workers": args.num_workers,
+      "device_type": device_type,
+      "use_ipex": args.use_ipex and IPEX_AVAILABLE
    }
    
    logger.info(f"Hyperparameters: {hyperparams}")
@@ -165,7 +285,7 @@ def main():
       logger.info(f"Model created - Total params: {total_params:,}, "
                  f"Trainable params: {trainable_params:,}")
       
-      # Create trainer
+      # Create trainer with device configuration
       trainer = Trainer(
          model=model,
          train_loader=train_loader,
@@ -175,7 +295,9 @@ def main():
          weight_decay=args.weight_decay,
          num_epochs=args.num_epochs,
          output_dir=output_dir,
-         job_id=args.job_id
+         job_id=args.job_id,
+         device_type=device_type,
+         use_ipex=args.use_ipex and IPEX_AVAILABLE
       )
       
       # Start training
@@ -210,6 +332,12 @@ def main():
             "total_params": total_params,
             "trainable_params": trainable_params,
             "model_type": args.model_type
+         },
+         "system_info": {
+            "device_type": device_type,
+            "pytorch_version": torch.__version__,
+            "intel_pytorch_extension": IPEX_AVAILABLE,
+            "intel_gpu_support": hasattr(torch, 'xpu')
          }
       }
       

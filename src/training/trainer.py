@@ -2,6 +2,7 @@
 """
 Trainer class for CIFAR-100 model training.
 Handles training loop, validation, and logging.
+Optimized for Aurora Intel GPU architecture with Intel PyTorch Extension (IPEX).
 """
 
 import json
@@ -19,13 +20,21 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from tqdm import tqdm
 
+# Import Intel PyTorch Extension (IPEX) for Aurora optimization
+try:
+   import intel_extension_for_pytorch as ipex
+   IPEX_AVAILABLE = True
+except ImportError:
+   IPEX_AVAILABLE = False
+
 
 class Trainer:
    """Trainer class for CIFAR-100 classification models."""
    
    def __init__(self, model: nn.Module, train_loader: DataLoader, val_loader: DataLoader,
                 test_loader: DataLoader, learning_rate: float = 0.001, weight_decay: float = 1e-4,
-                num_epochs: int = 50, output_dir: Path = None, job_id: str = None):
+                num_epochs: int = 50, output_dir: Path = None, job_id: str = None, 
+                device_type: str = "auto", use_ipex: bool = True):
       
       self.model = model
       self.train_loader = train_loader
@@ -36,11 +45,13 @@ class Trainer:
       self.num_epochs = num_epochs
       self.output_dir = Path(output_dir) if output_dir else Path("outputs")
       self.job_id = job_id
+      self.device_type = device_type
+      self.use_ipex = use_ipex and IPEX_AVAILABLE
       
       self.logger = logging.getLogger(__name__)
       
-      # Setup device
-      self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+      # Setup device based on device_type
+      self.device = self._setup_device(device_type)
       self.model.to(self.device)
       
       # Setup optimizer and scheduler
@@ -58,6 +69,10 @@ class Trainer:
          verbose=True
       )
       
+      # Optimize model and optimizer with IPEX if available and requested
+      if self.use_ipex and self.device_type == "xpu":
+         self.model, self.optimizer = self._optimize_with_ipex()
+      
       # Setup loss function
       self.criterion = nn.CrossEntropyLoss()
       
@@ -73,6 +88,73 @@ class Trainer:
       
       # Create output directory
       self.output_dir.mkdir(parents=True, exist_ok=True)
+   
+   def _optimize_with_ipex(self):
+      """Optimize model and optimizer using Intel PyTorch Extension."""
+      if not IPEX_AVAILABLE:
+         self.logger.warning("IPEX not available, skipping optimization")
+         return self.model, self.optimizer
+      
+      try:
+         # Optimize model and optimizer for Intel GPU
+         model, optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
+         self.logger.info("Model and optimizer optimized with Intel PyTorch Extension")
+         return model, optimizer
+      except Exception as e:
+         self.logger.warning(f"Failed to optimize with IPEX: {e}")
+         return self.model, self.optimizer
+   
+   def _setup_device(self, device_type: str) -> torch.device:
+      """Setup the appropriate device for training."""
+      
+      if device_type == "auto":
+         # Auto-detect best available device
+         if IPEX_AVAILABLE and hasattr(torch, 'xpu') and torch.xpu.is_available():
+            device_count = torch.xpu.device_count()
+            if device_count > 0:
+               self.logger.info(f"Using Intel GPU (XPU) with IPEX - {device_count} device(s) available")
+               return torch.device("xpu:0")
+         
+         if hasattr(torch, 'xpu') and torch.xpu.is_available():
+            device_count = torch.xpu.device_count()
+            if device_count > 0:
+               self.logger.info(f"Using Intel GPU (XPU) without IPEX - {device_count} device(s) available")
+               return torch.device("xpu:0")
+         
+         if torch.cuda.is_available():
+            device_count = torch.cuda.device_count()
+            self.logger.info(f"Using CUDA GPU - {device_count} device(s) available")
+            return torch.device("cuda:0")
+         
+         self.logger.info("No GPU available, using CPU")
+         return torch.device("cpu")
+      
+      elif device_type == "xpu":
+         if not hasattr(torch, 'xpu') or not torch.xpu.is_available():
+            self.logger.warning("Intel GPU (XPU) requested but not available, falling back to CPU")
+            return torch.device("cpu")
+         device_count = torch.xpu.device_count()
+         if device_count == 0:
+            self.logger.warning("No Intel GPUs found, falling back to CPU")
+            return torch.device("cpu")
+         self.logger.info(f"Using Intel GPU (XPU) - {device_count} device(s) available")
+         return torch.device("xpu:0")
+      
+      elif device_type == "cuda":
+         if not torch.cuda.is_available():
+            self.logger.warning("CUDA requested but not available, falling back to CPU")
+            return torch.device("cpu")
+         device_count = torch.cuda.device_count()
+         self.logger.info(f"Using CUDA GPU - {device_count} device(s) available")
+         return torch.device("cuda:0")
+      
+      elif device_type == "cpu":
+         self.logger.info("Using CPU for training")
+         return torch.device("cpu")
+      
+      else:
+         self.logger.warning(f"Unknown device type '{device_type}', falling back to CPU")
+         return torch.device("cpu")
    
    def train(self) -> List[Dict[str, Any]]:
       """Train the model."""
