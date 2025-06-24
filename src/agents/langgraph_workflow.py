@@ -25,8 +25,9 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from agents.langchain_hyperparam_agent import LangChainHyperparameterAgent
+from agents.langchain_hyperparam_agent import LangChainHyperparameterAgent, AuthenticationError
 from agents.job_scheduler import JobScheduler
+from agents.deployment_agent import DeploymentAgent
 from utils.metrics import calculate_auc
 from utils.data_utils import load_training_results
 from utils.working_dirs import WorkingDirManager
@@ -68,6 +69,7 @@ class WorkflowState:
    should_stop: bool = False
    error_message: Optional[str] = None
    final_report: Optional[Dict[str, Any]] = None
+   deployment_status: Optional[Dict[str, Any]] = None
    
    def __post_init__(self):
       if self.completed_jobs is None:
@@ -101,8 +103,12 @@ class LangGraphWorkflow:
          aurora_host=config["aurora"]["host"],
          aurora_user=config["aurora"]["user"],
          pbs_template_path=config["aurora"]["pbs_template"],
-         working_dir_config=config.get("working_dirs", {})
+         working_dir_config=config.get("working_dirs", {}),
+         queue=config["aurora"].get("queue", "workq")
       )
+      
+      # Initialize deployment agent
+      self.deployment_agent = DeploymentAgent(config)
       
       # Initialize LangChain components
       self.llm = ChatOpenAI(
@@ -122,6 +128,7 @@ class LangGraphWorkflow:
       workflow = StateGraph(WorkflowState)
       
       # Add nodes
+      workflow.add_node("deploy_environment", self._deploy_environment_node)
       workflow.add_node("analyze_results", self._analyze_results_node)
       workflow.add_node("suggest_hyperparams", self._suggest_hyperparams_node)
       workflow.add_node("submit_job", self._submit_job_node)
@@ -130,6 +137,7 @@ class LangGraphWorkflow:
       workflow.add_node("generate_report", self._generate_report_node)
       
       # Add edges
+      workflow.add_edge("deploy_environment", "analyze_results")
       workflow.add_edge("analyze_results", "suggest_hyperparams")
       workflow.add_edge("suggest_hyperparams", "submit_job")
       workflow.add_edge("submit_job", "collect_results")
@@ -145,9 +153,35 @@ class LangGraphWorkflow:
       workflow.add_edge("generate_report", END)
       
       # Set entry point
-      workflow.set_entry_point("analyze_results")
+      workflow.set_entry_point("deploy_environment")
       
       return workflow.compile()
+   
+   def _deploy_environment_node(self, state: WorkflowState) -> WorkflowState:
+      """Deploy the software repository and dataset to Aurora."""
+      self.logger.info("Deploying environment to Aurora")
+      
+      try:
+         # Deploy repository and dataset
+         deployment_result = self.deployment_agent.deploy_all()
+         state.deployment_status = deployment_result
+         
+         if deployment_result.get("repository", {}).get("status") == "error":
+            raise Exception(f"Repository deployment failed: {deployment_result['repository']['error']}")
+         
+         if deployment_result.get("dataset", {}).get("status") == "error":
+            raise Exception(f"Dataset deployment failed: {deployment_result['dataset']['error']}")
+         
+         if deployment_result.get("verification", {}).get("status") == "error":
+            raise Exception(f"Deployment verification failed: {deployment_result['verification']['error']}")
+         
+         self.logger.info("Environment deployment completed successfully")
+         return state
+         
+      except Exception as e:
+         self.logger.error(f"Error in deploy_environment_node: {e}")
+         state.error_message = str(e)
+         return state
    
    def _analyze_results_node(self, state: WorkflowState) -> WorkflowState:
       """Analyze previous results and prepare context for hyperparameter suggestion."""
@@ -194,6 +228,11 @@ class LangGraphWorkflow:
          self.logger.info(f"Suggested hyperparameters: {hyperparams}")
          return state
          
+      except AuthenticationError as e:
+         self.logger.error(f"Authentication error in suggest_hyperparams_node: {e}")
+         state.error_message = str(e)
+         state.should_stop = True
+         raise  # Re-raise to halt execution
       except Exception as e:
          self.logger.error(f"Error in suggest_hyperparams_node: {e}")
          state.error_message = str(e)
@@ -207,17 +246,22 @@ class LangGraphWorkflow:
          if not state.current_hyperparams:
             raise ValueError("No hyperparameters available for job submission")
          
-         # Get job-specific directories
+         # Get job-specific directories (local and Aurora)
          job_dirs = self.working_dir_manager.get_job_specific_dirs(
             f"{state.experiment_id}_iter_{state.iteration}", 
+            state.experiment_id
+         )
+         aurora_job_dirs = self.working_dir_manager.get_aurora_job_specific_dirs(
+            f"{state.experiment_id}_iter_{state.iteration}",
             state.experiment_id
          )
          
          job_config = {
             "job_id": f"{state.experiment_id}_iter_{state.iteration}",
             "experiment_id": state.experiment_id,
-            "output_dir": str(job_dirs["output_dir"]),
+            "output_dir": aurora_job_dirs["output_dir"],
             "data_dir": self.config["data"]["dir"],
+            "queue": self.config["aurora"].get("queue", "workq"),
             **state.current_hyperparams
          }
          
@@ -344,7 +388,8 @@ class LangGraphWorkflow:
             "best_accuracy": 0.0,
             "best_hyperparams": None,
             "all_results": state.completed_jobs,
-            "error_message": state.error_message
+            "error_message": state.error_message,
+            "deployment_status": state.deployment_status
          }
          
          if state.completed_jobs:

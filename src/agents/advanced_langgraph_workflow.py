@@ -24,7 +24,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Base
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from agents.langchain_hyperparam_agent import LangChainHyperparameterAgent
+from agents.langchain_hyperparam_agent import LangChainHyperparameterAgent, AuthenticationError
 from agents.job_scheduler import JobScheduler
 from utils.metrics import calculate_auc
 from utils.data_utils import load_training_results
@@ -101,7 +101,8 @@ class AdvancedLangGraphWorkflow:
          aurora_host=config["aurora"]["host"],
          aurora_user=config["aurora"]["user"],
          pbs_template_path=config["aurora"]["pbs_template"],
-         working_dir_config=config.get("working_dirs", {})
+         working_dir_config=config.get("working_dirs", {}),
+         queue=config["aurora"].get("queue", "workq")
       )
       
       # Create the workflow graph
@@ -180,6 +181,12 @@ class AdvancedLangGraphWorkflow:
          self.logger.info(f"Suggested hyperparameters: {hyperparams}")
          return state
          
+      except AuthenticationError as e:
+         self.logger.error(f"Authentication error in suggest_hyperparams_node: {e}")
+         state.error_message = str(e)
+         state.status = WorkflowStatus.ERROR
+         state.should_stop = True
+         raise  # Re-raise to halt execution
       except Exception as e:
          self.logger.error(f"Error in suggest_hyperparams_node: {e}")
          state.error_message = str(e)
@@ -191,17 +198,22 @@ class AdvancedLangGraphWorkflow:
       self.logger.info(f"Submitting job for iteration {state.iteration}")
       
       try:
-         # Get job-specific directories
+         # Get job-specific directories (local and Aurora)
          job_dirs = self.working_dir_manager.get_job_specific_dirs(
             f"{state.experiment_id}_iter_{state.iteration}", 
+            state.experiment_id
+         )
+         aurora_job_dirs = self.working_dir_manager.get_aurora_job_specific_dirs(
+            f"{state.experiment_id}_iter_{state.iteration}",
             state.experiment_id
          )
          
          job_config = {
             "job_id": f"{state.experiment_id}_iter_{state.iteration}",
             "experiment_id": state.experiment_id,
-            "output_dir": str(job_dirs["output_dir"]),
+            "output_dir": aurora_job_dirs["output_dir"],
             "data_dir": self.config["data"]["dir"],
+            "queue": self.config["aurora"].get("queue", "workq"),
             **state.current_hyperparams
          }
          

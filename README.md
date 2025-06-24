@@ -178,6 +178,150 @@ Host aurora.alcf.anl.gov
     ControlPersist 10m
 ```
 
+### Aurora Configuration
+
+The project has been specifically configured for Aurora's Intel GPU architecture. Key features include:
+
+- **Intel GPU Support**: Optimized for Aurora's Ponte Vecchio GPUs using Intel oneAPI
+- **Module Configuration**: Proper Intel module loading (intel, intel-mpi, intel-mkl, pytorch)
+- **Environment Variables**: Intel-specific settings for optimal performance
+- **Device Detection**: Automatic detection and fallback between Intel GPU → CUDA → CPU
+
+#### Testing Aurora Configuration
+
+Before running training jobs, test the Aurora setup:
+
+```bash
+# On Aurora login node or in a test job
+python test_aurora_config.py
+```
+
+This verifies:
+- Intel module loading
+- PyTorch Intel extension availability
+- GPU device detection
+- Environment variable configuration
+
+#### Aurora-Specific Considerations
+
+- **Intel GPUs**: Aurora uses Intel Ponte Vecchio GPUs, not NVIDIA
+- **Memory Management**: Different memory characteristics than CUDA GPUs
+- **Performance Tuning**: Intel-specific optimizations for best performance
+
+For detailed Aurora configuration information, see [Aurora Configuration Guide](docs/aurora_configuration.md).
+
+### Deployment to Aurora
+
+The workflow now includes automatic deployment of the software repository and dataset to Aurora. This ensures that the training scripts and data are always up-to-date before running experiments.
+
+#### Automatic Deployment (Recommended)
+
+The LangGraph workflow automatically handles deployment:
+
+```bash
+# The workflow will automatically deploy before starting experiments
+python src/agents/langgraph_workflow.py --config config.yaml --max-iterations 10
+```
+
+The workflow includes a `deploy_environment` node that:
+1. **Checks repository status** on Aurora
+2. **Clones or updates** the git repository
+3. **Downloads CIFAR-100 dataset** if not present
+4. **Verifies deployment** before proceeding
+
+#### Manual Deployment
+
+You can also deploy manually using the deployment agent:
+
+```bash
+# Deploy everything (repository + dataset)
+python src/agents/deployment_agent.py --config config.yaml --action all
+
+# Deploy only repository
+python src/agents/deployment_agent.py --config config.yaml --action repo
+
+# Deploy only dataset
+python src/agents/deployment_agent.py --config config.yaml --action dataset
+
+# Verify deployment
+python src/agents/deployment_agent.py --config config.yaml --action verify
+```
+
+#### Bash Script Deployment
+
+For quick deployment without Python dependencies:
+
+```bash
+# Make script executable (first time only)
+chmod +x scripts/deploy_to_aurora.sh
+
+# Run deployment
+./scripts/deploy_to_aurora.sh
+```
+
+This script:
+- Automatically detects git repository and branch
+- Creates base directory on Aurora
+- Clones/updates the repository
+- Downloads CIFAR-100 dataset
+- Verifies the deployment
+
+#### Repository Configuration
+
+Configure repository settings in `config.yaml`:
+
+```yaml
+# Repository configuration for deployment
+# If not specified, will use current git repository
+repository:
+  url: "https://github.com/your-org/inference_service_test.git"  # Optional: auto-detected
+  branch: "main"  # Optional: auto-detected
+```
+
+If not specified, the deployment agent will automatically detect:
+- Current git repository URL
+- Current branch name
+
+#### Deployment Verification
+
+The deployment process verifies:
+- ✅ Repository exists and is up-to-date
+- ✅ Source code structure is intact
+- ✅ Training script is present
+- ✅ CIFAR-100 dataset is downloaded
+- ✅ Python environment is available
+- ✅ Requirements.txt exists
+
+#### Deployment Logs
+
+Deployment results are included in the final experiment report:
+
+```json
+{
+  "experiment_id": "20241201_143022_exp_001",
+  "deployment_status": {
+    "repository": {
+      "status": "success",
+      "action": "updated",
+      "repo_url": "https://github.com/your-org/inference_service_test.git",
+      "repo_branch": "main"
+    },
+    "dataset": {
+      "status": "success", 
+      "action": "exists",
+      "data_dir": "/lus/eagle/projects/datascience/user/workflows/inference_service_test/data/cifar-100-python"
+    },
+    "verification": {
+      "status": "success",
+      "repository": "ok",
+      "source_code": "ok",
+      "training_script": "ok",
+      "dataset": "ok"
+    }
+  }
+}
+```
+
 ### Testing the Integration
 
 Before running the full workflow, test the Sophia integration:
@@ -302,7 +446,8 @@ inference_service_test/
 ├── cursor_rules.txt         # Cursor IDE rules and context
 ├── data/                    # CIFAR-100 dataset storage
 ├── scripts/
-│   └── download_cifar100.sh # Download/unpack CIFAR-100
+│   ├── download_cifar100.sh # Download/unpack CIFAR-100
+│   └── deploy_to_aurora.sh  # 🆕 Aurora deployment script
 ├── jobs/
 │   └── train_cifar100.pbs.template  # PBS script template
 ├── src/
@@ -312,6 +457,7 @@ inference_service_test/
 │   │   ├── langgraph_workflow.py      # 🆕 Basic LangGraph workflow
 │   │   ├── advanced_langgraph_workflow.py  # 🆕 Advanced LangGraph workflow
 │   │   ├── langchain_hyperparam_agent.py   # 🆕 LangChain hyperparameter agent
+│   │   ├── deployment_agent.py        # 🆕 Aurora deployment agent
 │   │   └── job_scheduler.py           # PBS job manager (SSH to Aurora)
 │   ├── training/
 │   │   ├── train.py         # Training entry point
@@ -343,6 +489,7 @@ inference_service_test/
 - **`langgraph_workflow.py`**: Basic LangGraph workflow with state management and conditional routing
 - **`advanced_langgraph_workflow.py`**: Advanced workflow with enhanced error handling and monitoring
 - **`langchain_hyperparam_agent.py`**: LangChain-based agent with tools and structured outputs
+- **`deployment_agent.py`**: 🆕 Aurora deployment agent for repository and dataset setup
 
 ### Training (`src/training/`)
 

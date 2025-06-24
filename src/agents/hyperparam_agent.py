@@ -18,6 +18,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
 from inference_auth_token import get_access_token
 
 
+class AuthenticationError(Exception):
+   """Exception raised when authentication fails with the LLM service."""
+   pass
+
+
 class HyperparameterAgent:
    """Agent that uses LLM on Sophia to suggest hyperparameters."""
    
@@ -78,8 +83,20 @@ class HyperparameterAgent:
          return validated_params
          
       except Exception as e:
-         self.logger.error(f"Error getting hyperparameter suggestions: {e}")
-         # Fallback to random sampling
+         error_msg = str(e)
+         self.logger.error(f"Error getting hyperparameter suggestions: {error_msg}")
+         
+         # Check if this is an authentication error (403 Forbidden)
+         if "403" in error_msg and ("Forbidden" in error_msg or "Permission denied" in error_msg):
+            auth_error_msg = (
+               "Authentication failed with the LLM service. This is likely due to expired Globus credentials. "
+               "Please re-authenticate by running: 'python3 inference_auth_token.py authenticate --force'. "
+               "Make sure you authenticate with an authorized identity provider: ['Argonne National Laboratory', 'Argonne LCF']."
+            )
+            self.logger.error(auth_error_msg)
+            raise AuthenticationError(auth_error_msg)
+         
+         # For other errors, still fall back to random hyperparameters
          return self._random_hyperparameters()
    
    def update_with_results(self, results: List[Dict[str, Any]]) -> None:

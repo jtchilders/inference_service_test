@@ -20,16 +20,16 @@ class JobScheduler:
    """Manages PBS job submission and monitoring on Aurora using SSH ControlMaster."""
    
    def __init__(self, aurora_host: str, aurora_user: str, pbs_template_path: str, 
-                working_dir_config: Optional[Dict[str, Any]] = None):
+                working_dir_config: Optional[Dict[str, Any]] = None, queue: str = "workq"):
       self.aurora_host = aurora_host
       self.aurora_user = aurora_user
       self.pbs_template_path = pbs_template_path
+      self.queue = queue
       self.logger = logging.getLogger(__name__)
       
       # Working directory configuration
       self.working_dir_config = working_dir_config or {}
-      self.aurora_base_dir = self.working_dir_config.get("aurora_base", 
-                                                         f"/lus/eagle/projects/datascience/{aurora_user}/workflows")
+      self.aurora_base_dir = self.working_dir_config.get("aurora_base")
       self.launch_iteration_pattern = self.working_dir_config.get("launch_iteration_pattern", 
                                                                   "{timestamp}_{experiment_id}")
       self.job_pattern = self.working_dir_config.get("job_pattern", "job_{job_id}")
@@ -314,7 +314,7 @@ class JobScheduler:
          "JOB_ID": job_config["job_id"],
          "OUTPUT_DIR": job_config["output_dir"],
          "DATA_DIR": job_config["data_dir"],
-         "QUEUE": job_config.get("queue", "workq"),
+         "QUEUE": self.queue,
          "MODEL_TYPE": job_config.get("model_type", "resnet18"),
          "HIDDEN_SIZE": str(job_config.get("hidden_size", 1024)),
          "NUM_LAYERS": str(job_config.get("num_layers", 3)),
@@ -344,7 +344,10 @@ class JobScheduler:
       for pattern in patterns:
          match = re.search(pattern, qsub_output)
          if match:
-            return match.group(1)
+            jobid = match.group(1)
+            # remove the .aurora from the jobid
+            jobid = jobid.replace('.aurora', '')
+            return jobid
       
       return None
    

@@ -89,17 +89,43 @@ class WorkingDirManager:
       job_dir = self.get_local_job_dir(job_id, experiment_id)
       
       directories = {
-         "job_dir": job_dir,
-         "output_dir": job_dir / "output",
-         "logs_dir": job_dir / "logs",
-         "checkpoints_dir": job_dir / "checkpoints",
-         "tensorboard_dir": job_dir / "tensorboard"
+         "job_dir": job_dir.resolve(),
+         "output_dir": (job_dir / "output").resolve(),
+         "logs_dir": (job_dir / "logs").resolve(),
+         "checkpoints_dir": (job_dir / "checkpoints").resolve(),
+         "tensorboard_dir": (job_dir / "tensorboard").resolve()
       }
       
       # Create all directories
       for dir_path in directories.values():
          dir_path.mkdir(parents=True, exist_ok=True)
       
+      return directories
+   
+   def get_aurora_job_specific_dirs(self, job_id: str, experiment_id: str) -> Dict[str, str]:
+      """Get job-specific directories for Aurora using the configured aurora_base, launch_iteration_pattern, and job_pattern."""
+      working_dir_config = self.working_dir_config
+      aurora_base = working_dir_config.get("aurora_base")
+      launch_iteration_pattern = working_dir_config.get("launch_iteration_pattern", "{timestamp}_{experiment_id}")
+      job_pattern = working_dir_config.get("job_pattern", "job_{job_id}")
+
+      # Use the same timestamp logic as local, but if current_launch_dir is set, extract the launch dir name
+      if self.current_launch_dir is not None:
+         launch_dir_name = self.current_launch_dir.name
+      else:
+         # If not set, generate a new one (should match local logic)
+         launch_dir_name = self._generate_launch_iteration_dir(experiment_id)
+
+      job_dir_name = job_pattern.format(job_id=job_id)
+      aurora_job_dir = f"{aurora_base}/{launch_dir_name}/{job_dir_name}"
+
+      directories = {
+         "job_dir": aurora_job_dir,
+         "output_dir": f"{aurora_job_dir}/output",
+         "logs_dir": f"{aurora_job_dir}/logs",
+         "checkpoints_dir": f"{aurora_job_dir}/checkpoints",
+         "tensorboard_dir": f"{aurora_job_dir}/tensorboard"
+      }
       return directories
    
    def cleanup_old_experiments(self, max_age_hours: int = 24) -> None:

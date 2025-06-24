@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 # Add src to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from agents.hyperparam_agent import HyperparameterAgent
+from agents.hyperparam_agent import HyperparameterAgent, AuthenticationError
 from agents.job_scheduler import JobScheduler
 from utils.metrics import calculate_auc
 from utils.data_utils import load_training_results
@@ -58,7 +58,8 @@ class AgentWorkflow:
          aurora_host=config["aurora"]["host"],
          aurora_user=config["aurora"]["user"],
          pbs_template_path=config["aurora"]["pbs_template"],
-         working_dir_config=config.get("working_dirs", {})
+         working_dir_config=config.get("working_dirs", {}),
+         queue=config["aurora"].get("queue", "workq")
       )
       
       # Track experiment state
@@ -74,6 +75,8 @@ class AgentWorkflow:
       """Run the main experiment loop."""
       self.logger.info(f"Starting agentic workflow experiment: {self.experiment_id}")
       
+      authentication_failed = False
+      
       for iteration in range(max_iterations):
          self.logger.info(f"Starting iteration {iteration + 1}/{max_iterations}")
          
@@ -81,7 +84,13 @@ class AgentWorkflow:
          hyperparams = self._get_next_hyperparameters(iteration)
          
          if hyperparams is None:
-            self.logger.warning("No hyperparameters suggested, ending experiment")
+            # Check if this was due to authentication failure
+            if hasattr(self, '_auth_failed') and self._auth_failed:
+               self.logger.error("Experiment terminated due to authentication failure with the LLM service.")
+               self.logger.error("Please re-authenticate your Globus credentials and restart the experiment.")
+               authentication_failed = True
+            else:
+               self.logger.warning("No hyperparameters suggested, ending experiment")
             break
          
          # Submit job to Aurora
@@ -108,7 +117,11 @@ class AgentWorkflow:
          
          time.sleep(self.config.get("polling_interval", 60))
       
-      self.logger.info("Experiment completed")
+      if authentication_failed:
+         self.logger.error("Experiment failed due to authentication issues.")
+      else:
+         self.logger.info("Experiment completed")
+      
       self._generate_final_report()
    
    def _get_next_hyperparameters(self, iteration: int) -> Optional[Dict]:
@@ -128,6 +141,11 @@ class AgentWorkflow:
          
          return hyperparams
          
+      except AuthenticationError as e:
+         self.logger.error(f"Authentication error: {e}")
+         self.logger.error("Authentication failed, ending experiment")
+         self._auth_failed = True
+         raise  # Re-raise to halt execution
       except Exception as e:
          self.logger.error(f"Error getting hyperparameters: {e}")
          return None
@@ -135,17 +153,22 @@ class AgentWorkflow:
    def _submit_training_job(self, hyperparams: Dict, iteration: int) -> Optional[str]:
       """Submit a training job to Aurora."""
       try:
-         # Get job-specific directories
+         # Get job-specific directories (local and Aurora)
          job_dirs = self.working_dir_manager.get_job_specific_dirs(
             f"{self.experiment_id}_iter_{iteration}", 
+            self.experiment_id
+         )
+         aurora_job_dirs = self.working_dir_manager.get_aurora_job_specific_dirs(
+            f"{self.experiment_id}_iter_{iteration}",
             self.experiment_id
          )
          
          job_config = {
             "job_id": f"{self.experiment_id}_iter_{iteration}",
             "experiment_id": self.experiment_id,
-            "output_dir": str(job_dirs["output_dir"]),
+            "output_dir": aurora_job_dirs["output_dir"],
             "data_dir": self.config["data"]["dir"],
+            "queue": self.config["aurora"].get("queue", "workq"),
             **hyperparams
          }
          

@@ -14,12 +14,19 @@ aurora:
   # SSH ControlMaster configuration for Aurora authentication
   control_master: true
   pbs_template: "jobs/train_cifar100.pbs.template"
+  queue: "debug"
+
+# Repository configuration for deployment
+# If not specified, will use current git repository
+repository:
+  url: "https://github.com/jtchilders/inference_service_test.git"  # Optional: auto-detected from current repo
+  branch: "main"  # Optional: auto-detected from current branch
 
 # Working directory configuration
 # Hierarchical structure: {working_dir_base}/{launch_iteration_base}/{job_base}
 working_dirs:
   # Base directory on Aurora for all workflow runs
-  aurora_base: "/lus/flare/projects/datascience/{user}/workflows"
+  aurora_base: "/lus/flare/projects/datascience/parton/workflows"
   # Base directory for local results and logs
   local_base: "results"
   # Directory naming patterns
@@ -36,14 +43,6 @@ results:
 # Workflow configuration
 polling_interval: 60  # seconds between job status checks
 
-# Optional: Virtual environment path on Aurora
-# aurora:
-#   venv_path: "/path/to/venv/on/aurora"
-
-# Optional: Queue configuration
-# aurora:
-#   default_queue: "workq"
-#   max_jobs: 10
 
 # Optional: Model and training defaults
 # training:

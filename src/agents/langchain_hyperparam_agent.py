@@ -18,11 +18,16 @@ from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 
 # Add src/utils to path to import inference_auth_token
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
 from inference_auth_token import get_access_token
+
+
+class AuthenticationError(Exception):
+   """Exception raised when authentication fails with the LLM service."""
+   pass
 
 
 @dataclass
@@ -221,6 +226,8 @@ Available tools:
 
 Use the tools to analyze the situation and then provide your hyperparameter suggestions.
 
+IMPORTANT: Respond with ONLY a valid JSON object. Do not include any comments, explanations, or additional text outside the JSON. The JSON must be properly formatted without any trailing commas or comments.
+
 Respond with a JSON object containing the hyperparameters in this exact format:
 {{
    "model_type": "resnet18",
@@ -234,7 +241,7 @@ Respond with a JSON object containing the hyperparameters in this exact format:
    "reasoning": "Brief explanation of your choices"
 }}
 
-Focus on exploring promising regions of the search space and avoiding configurations that performed poorly."""
+Focus on exploring promising regions of the search space and avoiding configurations that performed poorly. Provide ONLY the JSON object, no additional text."""
       
       return ChatPromptTemplate.from_template(template)
    
@@ -310,7 +317,20 @@ Focus on exploring promising regions of the search space and avoiding configurat
             return self._random_hyperparameters()
          
       except Exception as e:
-         self.logger.error(f"Error getting hyperparameter suggestions: {e}")
+         error_msg = str(e)
+         self.logger.error(f"Error getting hyperparameter suggestions: {error_msg}")
+         
+         # Check if this is an authentication error (403 Forbidden)
+         if "403" in error_msg and ("Forbidden" in error_msg or "Permission denied" in error_msg):
+            auth_error_msg = (
+               "Authentication failed with the LLM service. This is likely due to expired Globus credentials. "
+               "Please re-authenticate by running: 'python3 inference_auth_token.py authenticate --force'. "
+               "Make sure you authenticate with an authorized identity provider: ['Argonne National Laboratory', 'Argonne LCF']."
+            )
+            self.logger.error(auth_error_msg)
+            raise AuthenticationError(auth_error_msg)
+         
+         # For other errors, still fall back to random hyperparameters
          return self._random_hyperparameters()
    
    def update_with_results(self, results: List[Dict[str, Any]]) -> None:
@@ -358,15 +378,61 @@ Focus on exploring promising regions of the search space and avoiding configurat
                      break
             
             json_str = json_str[:json_end]
+            
+            # Clean the JSON string to remove comments and fix common issues
+            original_json = json_str
+            json_str = self._clean_json_string(json_str)
+            
+            self.logger.debug(f"Original JSON: {original_json}")
+            self.logger.debug(f"Cleaned JSON: {json_str}")
+            
             return json.loads(json_str)
          
          # If no JSON found, try to parse the entire response
-         return json.loads(response)
+         cleaned_response = self._clean_json_string(response)
+         self.logger.debug(f"Cleaned full response: {cleaned_response}")
+         return json.loads(cleaned_response)
          
       except json.JSONDecodeError as e:
          self.logger.error(f"Error parsing LLM response: {e}")
          self.logger.error(f"Response: {response}")
          raise
+   
+   def _clean_json_string(self, json_str: str) -> str:
+      """Clean JSON string by removing comments and fixing common formatting issues."""
+      
+      lines = json_str.split('\n')
+      cleaned_lines = []
+      
+      for line in lines:
+         # Remove comments (both # and // style)
+         if '#' in line:
+            line = line.split('#')[0]
+         if '//' in line:
+            line = line.split('//')[0]
+         
+         # Remove trailing commas before closing braces/brackets
+         line = line.rstrip()
+         if line.endswith(',') and (line.strip().endswith(',}') or line.strip().endswith(',]')):
+            line = line[:-1] + line[-1].replace(',', '')
+         
+         # Fix trailing commas on the same line
+         if line.strip().endswith(',}'):
+            line = line.replace(',}', '}')
+         if line.strip().endswith(',]'):
+            line = line.replace(',]', ']')
+         
+         # Only add non-empty lines
+         if line.strip():
+            cleaned_lines.append(line)
+      
+      cleaned_json = '\n'.join(cleaned_lines)
+      
+      # Additional cleaning: remove any remaining trailing commas
+      import re
+      cleaned_json = re.sub(r',(\s*[}\]])', r'\1', cleaned_json)
+      
+      return cleaned_json
    
    def _validate_hyperparameters(self, hyperparams: Dict[str, Any]) -> Dict[str, Any]:
       """Validate and normalize hyperparameters."""
