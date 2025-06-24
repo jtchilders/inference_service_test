@@ -104,11 +104,11 @@ class ResNetCIFAR100(nn.Module):
       
       # Load pretrained ResNet
       if model_type == "resnet18":
-         self.backbone = models.resnet18(pretrained=True)
+         self.backbone = models.resnet18(weights=None)
       elif model_type == "resnet34":
-         self.backbone = models.resnet34(pretrained=True)
+         self.backbone = models.resnet34(weights=None)
       elif model_type == "resnet50":
-         self.backbone = models.resnet50(pretrained=True)
+         self.backbone = models.resnet50(weights=None)
       else:
          raise ValueError(f"Unsupported ResNet type: {model_type}")
       
