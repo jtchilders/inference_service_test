@@ -19,23 +19,18 @@ set -e
 module load frameworks
 
 # Set environment variables for Aurora
-export OMP_NUM_THREADS=1
-export OMP_PLACES=cores
-export OMP_PROC_BIND=close
-export I_MPI_PIN_DOMAIN=auto:compact
-export I_MPI_PIN_ORDER=compact
+# export OMP_NUM_THREADS=1
+# export OMP_PLACES=cores
+# export OMP_PROC_BIND=close
+# export I_MPI_PIN_DOMAIN=auto:compact
+# export I_MPI_PIN_ORDER=compact
 
 # Aurora GPU configuration
 # Aurora uses Intel GPUs (Ponte Vecchio)
-export ZE_AFFINITY_MASK=0.0
-export SYCL_DEVICE_FILTER=level_zero:gpu
-export ONEAPI_DEVICE_SELECTOR=level_zero:gpu
-
-# Set PyTorch to use Intel GPU backend
-export PYTORCH_DEVICE=level_zero:gpu
+export ZE_AFFINITY_MASK=0
 
 # Set environment variables
-export PYTHONPATH="${PYTHONPATH}:${PBS_O_WORKDIR}/src"
+export PYTHONPATH="${PYTHONPATH}:${REPO_PATH}/src"
 
 # Create output directory
 mkdir -p ${OUTPUT_DIR}
@@ -44,6 +39,7 @@ mkdir -p ${OUTPUT_DIR}
 echo "Job started at: $(date)"
 echo "Job ID: ${JOB_ID}"
 echo "Working directory: ${PBS_O_WORKDIR}"
+echo "Repository path: ${REPO_PATH}"
 echo "Output directory: ${OUTPUT_DIR}"
 echo "Node: $(hostname)"
 echo "GPU Info:"
@@ -86,8 +82,8 @@ if [ ! -z "${VENV_PATH}" ]; then
    echo "Activated virtual environment: ${VENV_PATH}"
 fi
 
-# Run the training script
-cd ${PBS_O_WORKDIR}
+# Run the training script from the repository directory
+cd ${REPO_PATH}
 
 # Use Intel Python for PyTorch on Aurora
 python src/training/train.py \
