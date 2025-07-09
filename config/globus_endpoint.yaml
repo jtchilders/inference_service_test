@@ -1,0 +1,64 @@
+# Globus Compute Endpoint Configuration for Aurora
+# This configuration sets up a Globus Compute endpoint on Aurora for running training jobs
+# 
+# To use this configuration:
+# 1. Install globus-compute-endpoint on Aurora
+# 2. Configure this endpoint with: globus-compute-endpoint configure aurora-training
+# 3. Start the endpoint with: globus-compute-endpoint start aurora-training
+# 4. Get the endpoint ID and update config.yaml with the endpoint_id
+
+display_name: "Aurora Training Endpoint"
+description: "Globus Compute endpoint for CIFAR-100 training jobs on Aurora"
+
+# Engine configuration - handles job execution
+engine:
+   available_accelerators: 12
+   max_retries_on_system_failure: 2
+   max_workers_per_node: 12
+   prefetch_capacity: 24
+   
+   # PBS Provider configuration for Aurora
+   provider:
+      account: datascience
+      cpus_per_node: 64
+      init_blocks: 0
+      
+      # MPI launcher configuration
+      launcher:
+         bind_cmd: --cpu-bind
+         overrides: --ppn 1
+         type: MpiExecLauncher
+      
+      max_blocks: 1
+      min_blocks: 0
+      nodes_per_block: 1
+      queue: debug
+      
+      # Aurora-specific PBS scheduler options
+      scheduler_options: '#PBS -l filesystems=home:flare'
+      select_options: ngpus=1
+      type: PBSProProvider
+      walltime: 01:00:00
+      
+      # Environment setup for Aurora
+      worker_init: |
+         module load frameworks
+         cd /lus/flare/projects/datascience/parton/globus_compute/
+         source venvFrameworks/bin/activate
+         export PYTHONPATH=/lus/flare/projects/datascience/parton/globus_compute/:$PYTHONPATH
+         cd workflows
+   
+   type: GlobusComputeEngine
+
+# Optional: Endpoint metadata and configuration
+heartbeat_period: 30
+heartbeat_threshold: 120
+log_level: INFO
+
+# Optional: Resource limits and quotas
+# max_concurrent_tasks: 100
+# max_task_duration: 7200  # 2 hours
+
+# Optional: Storage configuration
+# working_dir: "/tmp/globus_compute_workdir"
+# log_dir: "/tmp/globus_compute_logs" 

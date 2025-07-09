@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from agents.hyperparam_agent import HyperparameterAgent, AuthenticationError
 from agents.job_scheduler import JobScheduler
+from agents.globus_job_scheduler import GlobusJobScheduler
 from utils.metrics import calculate_auc
 from utils.data_utils import load_training_results
 from utils.working_dirs import WorkingDirManager
@@ -54,13 +55,25 @@ class AgentWorkflow:
          sophia_url=config["sophia"]["url"]
       )
       
-      self.job_scheduler = JobScheduler(
-         aurora_host=config["aurora"]["host"],
-         aurora_user=config["aurora"]["user"],
-         pbs_template_path=config["aurora"]["pbs_template"],
-         working_dir_config=config.get("working_dirs", {}),
-         queue=config["aurora"].get("queue", "workq")
-      )
+      # Choose job scheduler based on configuration
+      if config.get("globus_compute", {}).get("enabled", False):
+         self.job_scheduler = GlobusJobScheduler(
+            endpoint_id=config["globus_compute"]["endpoint_id"],
+            working_dir_config=config.get("working_dirs", {}),
+            auth_method=config["globus_compute"].get("auth_method", "native_client"),
+            function_timeout=config["globus_compute"].get("function_timeout", 3600),
+            max_retries=config["globus_compute"].get("max_retries", 2)
+         )
+         self.logger.info("Using Globus Compute job scheduler")
+      else:
+         self.job_scheduler = JobScheduler(
+            aurora_host=config["aurora"]["host"],
+            aurora_user=config["aurora"]["user"],
+            pbs_template_path=config["aurora"]["pbs_template"],
+            working_dir_config=config.get("working_dirs", {}),
+            queue=config["aurora"].get("queue", "workq")
+         )
+         self.logger.info("Using direct PBS job scheduler")
       
       # Track experiment state
       self.experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")

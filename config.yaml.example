@@ -16,6 +16,19 @@ aurora:
   pbs_template: "jobs/train_cifar100.pbs.template"
   queue: "debug"
 
+# Globus Compute configuration (alternative to direct PBS)
+# Requires setting up a Globus Compute endpoint on Aurora
+globus_compute:
+  enabled: false  # Set to true to use Globus Compute instead of direct PBS
+  endpoint_id: "your-aurora-endpoint-id"  # Set after endpoint registration
+  endpoint_config_path: "config/globus_endpoint.yaml"
+  # Authentication method for Globus Compute
+  # Options: "native_client", "confidential_client", "client_credentials"
+  auth_method: "native_client"
+  # Optional: specify functions timeout and other execution parameters
+  function_timeout: 3600  # 1 hour timeout for training functions
+  max_retries: 2
+
 # Repository configuration for deployment
 # If not specified, will use current git repository
 repository:

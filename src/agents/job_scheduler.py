@@ -309,11 +309,18 @@ class JobScheduler:
       # Replace placeholders with actual values
       script = template
       
+      # Get repository path on Aurora
+      repo_path = f"{self.aurora_base_dir}/inference_service_test"
+      
+      # Get full data directory path on Aurora
+      aurora_data_dir = f"{repo_path}/{job_config['data_dir']}"
+      
       # Required parameters
       replacements = {
          "JOB_ID": job_config["job_id"],
          "OUTPUT_DIR": job_config["output_dir"],
-         "DATA_DIR": job_config["data_dir"],
+         "DATA_DIR": aurora_data_dir,
+         "REPO_PATH": repo_path,
          "QUEUE": self.queue,
          "MODEL_TYPE": job_config.get("model_type", "resnet18"),
          "HIDDEN_SIZE": str(job_config.get("hidden_size", 1024)),
