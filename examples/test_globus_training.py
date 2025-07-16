@@ -7,6 +7,7 @@ Submits parallel training jobs with random hyperparameters to Aurora via Globus 
 import argparse
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -41,7 +42,26 @@ def setup_logging(log_level: str = "INFO") -> None:
    )
 
 
-def generate_random_hyperparameters(job_id: str, base_data_dir: str = "data/cifar-100-python") -> Dict[str, Any]:
+def get_data_directory() -> str:
+   """Get and validate the CIFAR-100 data directory from environment variable."""
+   env_var = "CIFAR100_DATA_DIR"
+   data_dir = os.getenv(env_var)
+   
+   if data_dir is None:
+      raise ValueError(f"Environment variable {env_var} is not set. "
+                      f"Please set it to the path containing CIFAR-100 data.")
+   
+   data_path = Path(data_dir)
+   if not data_path.exists():
+      raise FileNotFoundError(f"Data directory '{data_dir}' specified in {env_var} does not exist.")
+   
+   if not data_path.is_dir():
+      raise NotADirectoryError(f"Path '{data_dir}' specified in {env_var} is not a directory.")
+   
+   return str(data_path)
+
+
+def generate_random_hyperparameters(job_id: str, base_data_dir: str) -> Dict[str, Any]:
    """Generate random hyperparameters for training."""
    
    # Learning rate: log scale between 1e-4 and 1e-2
@@ -203,7 +223,7 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
       
       for i in range(num_jobs):
          job_id = f"test_{i+1:03d}"
-         hparams = generate_random_hyperparameters(job_id)
+         hparams = generate_random_hyperparameters(job_id, get_data_directory())
          job_config = create_job_config(job_id, hparams, num_epochs, base_output_dir, repo_path)
          job_configs.append(job_config)
       
