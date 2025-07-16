@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 
-def cifar100_training_function(job_config: Dict[str, Any]) -> Dict[str, Any]:
+def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
    """
    Training function that runs CIFAR-100 training on Aurora via Globus Compute.
    
@@ -28,10 +28,33 @@ def cifar100_training_function(job_config: Dict[str, Any]) -> Dict[str, Any]:
          - data_dir: Path to CIFAR-100 data
          - output_dir: Output directory for results
          - And other hyperparameters
+      
+      Or can be called via Globus Compute with function_args=[job_config]
          
    Returns:
       Dict containing training results including AUC
    """
+   
+   # Handle different calling patterns for Globus Compute compatibility
+   if 'function_args' in kwargs:
+      # Called via Globus Compute with function_args keyword
+      function_args = kwargs['function_args']
+      if isinstance(function_args, list) and len(function_args) > 0:
+         job_config = function_args[0]
+      else:
+         raise ValueError("function_args must be a non-empty list containing job_config")
+   elif len(args) > 0:
+      # Called directly with positional argument
+      job_config = args[0]
+   elif 'job_config' in kwargs:
+      # Called with job_config as keyword argument
+      job_config = kwargs['job_config']
+   else:
+      raise ValueError("No job_config provided. Function must be called with job_config as positional argument, keyword argument, or via function_args list")
+   
+   # Validate job_config is a dictionary
+   if not isinstance(job_config, dict):
+      raise TypeError(f"job_config must be a dictionary, got {type(job_config)}")
    
    # Setup logging
    logging.basicConfig(
