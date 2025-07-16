@@ -128,14 +128,27 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       num_epochs = job_config.get("num_epochs", 10)
       weight_decay = job_config.get("weight_decay", 1e-4)
       num_workers = job_config.get("num_workers", 4)
-      data_dir = job_config.get("data_dir", "data/cifar-100-python")
+      
+      # Data directory: check environment variable first, then fall back to job config
+      env_data_dir = os.getenv("CIFAR100_DATA_DIR")
+      if env_data_dir:
+         data_dir = env_data_dir
+         logger.info(f"Using data directory from CIFAR100_DATA_DIR environment variable: {data_dir}")
+      else:
+         data_dir = job_config.get("data_dir", "data/cifar-100-python")
+         logger.info(f"Using data directory from job config: {data_dir}")
       
       logger.info(f"Hyperparameters: model={model_type}, lr={learning_rate}, "
                  f"batch={batch_size}, epochs={num_epochs}")
       
       # Check if data directory exists
       if not Path(data_dir).exists():
-         raise FileNotFoundError(f"Data directory not found: {data_dir}")
+         error_msg = f"Data directory not found: {data_dir}"
+         if env_data_dir:
+            error_msg += f" (from CIFAR100_DATA_DIR environment variable)"
+         else:
+            error_msg += f" (from job config). Consider setting CIFAR100_DATA_DIR environment variable on the compute endpoint."
+         raise FileNotFoundError(error_msg)
       
       # Get data loaders
       logger.info("Loading CIFAR-100 dataset...")

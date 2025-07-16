@@ -42,26 +42,7 @@ def setup_logging(log_level: str = "INFO") -> None:
    )
 
 
-def get_data_directory() -> str:
-   """Get and validate the CIFAR-100 data directory from environment variable."""
-   env_var = "CIFAR100_DATA_DIR"
-   data_dir = os.getenv(env_var)
-   
-   if data_dir is None:
-      raise ValueError(f"Environment variable {env_var} is not set. "
-                      f"Please set it to the path containing CIFAR-100 data.")
-   
-   data_path = Path(data_dir)
-   if not data_path.exists():
-      raise FileNotFoundError(f"Data directory '{data_dir}' specified in {env_var} does not exist.")
-   
-   if not data_path.is_dir():
-      raise NotADirectoryError(f"Path '{data_dir}' specified in {env_var} is not a directory.")
-   
-   return str(data_path)
-
-
-def generate_random_hyperparameters(job_id: str, base_data_dir: str) -> Dict[str, Any]:
+def generate_random_hyperparameters(job_id: str, base_data_dir: str = "/lus/flare/projects/datascience/parton/data/cifar-100-python") -> Dict[str, Any]:
    """Generate random hyperparameters for training."""
    
    # Learning rate: log scale between 1e-4 and 1e-2
@@ -192,7 +173,7 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
 
 
 def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: int, 
-                                base_output_dir: str, repo_path: str, 
+                                base_output_dir: str, repo_path: str, data_dir: str,
                                 max_wait_minutes: int = 30) -> bool:
    """Test the complete Globus Compute training pipeline."""
    
@@ -223,7 +204,7 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
       
       for i in range(num_jobs):
          job_id = f"test_{i+1:03d}"
-         hparams = generate_random_hyperparameters(job_id, get_data_directory())
+         hparams = generate_random_hyperparameters(job_id, data_dir)
          job_config = create_job_config(job_id, hparams, num_epochs, base_output_dir, repo_path)
          job_configs.append(job_config)
       
@@ -326,6 +307,9 @@ def main():
    parser.add_argument("--repo-path", 
                       default="/lus/flare/projects/datascience/parton/inference_service_test",
                       help="Path to repository on Aurora")
+   parser.add_argument("--data-dir",
+                      default="/lus/flare/projects/datascience/parton/data/cifar-100-python",
+                      help="Path to CIFAR-100 data on Aurora (can be overridden by CIFAR100_DATA_DIR env var on endpoint)")
    parser.add_argument("--max-wait-minutes", type=int, default=30,
                       help="Maximum time to wait for jobs to complete (default: 30)")
    parser.add_argument("--log-level", default="INFO",
@@ -370,6 +354,7 @@ def main():
       num_epochs=args.epochs,
       base_output_dir=args.output_dir,
       repo_path=args.repo_path,
+      data_dir=args.data_dir,
       max_wait_minutes=args.max_wait_minutes
    )
    
