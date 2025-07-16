@@ -135,7 +135,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
          data_dir = env_data_dir
          logger.info(f"Using data directory from CIFAR100_DATA_DIR environment variable: {data_dir}")
       else:
-         data_dir = job_config.get("data_dir", "data/cifar-100-python")
+         data_dir = job_config.get("data_dir", "data")
          logger.info(f"Using data directory from job config: {data_dir}")
       
       logger.info(f"Hyperparameters: model={model_type}, lr={learning_rate}, "

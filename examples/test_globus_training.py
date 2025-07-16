@@ -42,7 +42,7 @@ def setup_logging(log_level: str = "INFO") -> None:
    )
 
 
-def generate_random_hyperparameters(job_id: str, base_data_dir: str = "/lus/flare/projects/datascience/parton/data/cifar-100-python") -> Dict[str, Any]:
+def generate_random_hyperparameters(job_id: str, base_data_dir: str = "/lus/flare/projects/datascience/parton/data") -> Dict[str, Any]:
    """Generate random hyperparameters for training."""
    
    # Learning rate: log scale between 1e-4 and 1e-2
@@ -308,8 +308,8 @@ def main():
                       default="/lus/flare/projects/datascience/parton/inference_service_test",
                       help="Path to repository on Aurora")
    parser.add_argument("--data-dir",
-                      default="/lus/flare/projects/datascience/parton/data/cifar-100-python",
-                      help="Path to CIFAR-100 data on Aurora (can be overridden by CIFAR100_DATA_DIR env var on endpoint)")
+                      default="/lus/flare/projects/datascience/parton/data",
+                      help="Path to CIFAR-100 data parent directory on Aurora (torchvision expects cifar-100-python subdirectory here)")
    parser.add_argument("--max-wait-minutes", type=int, default=30,
                       help="Maximum time to wait for jobs to complete (default: 30)")
    parser.add_argument("--log-level", default="INFO",
