@@ -239,7 +239,7 @@ class GlobusJobScheduler:
          
          # Submit function to Globus Compute
          task_id = self.client.run(
-            self.training_function_id,
+            function_id=self.training_function_id,
             endpoint_id=self.endpoint_id,
             function_args=[job_config],
             function_kwargs={}
@@ -439,7 +439,7 @@ class GlobusJobScheduler:
          if test_type == "simple":
             # Register and run simple diagnostic
             func_id = self.client.register_function(simple_diagnostic)
-            task_id = self.client.run(func_id, endpoint_id=self.endpoint_id)
+            task_id = self.client.run(function_id=func_id, endpoint_id=self.endpoint_id)
             result = self.client.get_result(task_id)
             
             self.logger.info("Simple diagnostic test completed:")
@@ -454,7 +454,7 @@ class GlobusJobScheduler:
          elif test_type == "torch":
             # Register and run torch diagnostic
             func_id = self.client.register_function(torch_diagnostic)
-            task_id = self.client.run(func_id, endpoint_id=self.endpoint_id)
+            task_id = self.client.run(function_id=func_id, endpoint_id=self.endpoint_id)
             result = self.client.get_result(task_id)
             
             self.logger.info("Torch diagnostic test completed:")
@@ -472,7 +472,7 @@ class GlobusJobScheduler:
             # Submit multiple tasks
             task_ids = []
             for i in range(4):  # 4 parallel tasks
-               task_id = self.client.run(func_id, endpoint_id=self.endpoint_id)
+               task_id = self.client.run(function_id=func_id, endpoint_id=self.endpoint_id)
                task_ids.append(task_id)
             
             # Collect results

@@ -25,7 +25,7 @@ except ImportError:
    GLOBUS_COMPUTE_AVAILABLE = False
    Client = None
 
-from examples.training_function import cifar100_training_function
+from src.training.training_function import cifar100_training_function
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -215,7 +215,7 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
       task_ids = []
       
       for config in job_configs:
-         task_id = client.run(function_id, endpoint_id=endpoint_id, function_args=[config])
+         task_id = client.run(function_id=function_id, endpoint_id=endpoint_id, function_args=[config])
          task_ids.append(task_id)
          logger.info(f"Submitted job {config['job_id']} with task ID: {task_id}")
       

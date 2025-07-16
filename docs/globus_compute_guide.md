@@ -226,7 +226,7 @@ def hello_world():
 
 # Register and run
 function_id = client.register_function(hello_world)
-task_id = client.run(function_id, endpoint_id="your-endpoint-id")
+task_id = client.run(function_id=function_id, endpoint_id="your-endpoint-id")
 result = client.get_result(task_id)
 print(result)
 ```

@@ -60,7 +60,7 @@ def test_basic_connectivity(endpoint_id: str) -> bool:
       # Submit test
       client = Client()
       function_id = client.register_function(hello_test)
-      task_id = client.run(function_id, endpoint_id=endpoint_id)
+      task_id = client.run(function_id=function_id, endpoint_id=endpoint_id)
       
       # Wait for result
       result = client.get_result(task_id)
@@ -87,7 +87,7 @@ def test_torch_simple(endpoint_id: str) -> bool:
       # Submit test using the simple_torch_test function
       client = Client()
       function_id = client.register_function(simple_torch_test)
-      task_id = client.run(function_id, endpoint_id=endpoint_id)
+      task_id = client.run(function_id=function_id, endpoint_id=endpoint_id)
       
       # Wait for result
       result = client.get_result(task_id)
@@ -193,7 +193,7 @@ def test_mpi_and_tiles(endpoint_id: str) -> bool:
       # Submit test
       client = Client()
       function_id = client.register_function(train_wrapper)
-      task_id = client.run(function_id, endpoint_id=endpoint_id, function_args=[test_hparams])
+      task_id = client.run(function_id=function_id, endpoint_id=endpoint_id, function_args=[test_hparams])
       
       # Wait for result
       result = client.get_result(task_id)

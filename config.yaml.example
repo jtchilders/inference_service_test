@@ -20,7 +20,7 @@ aurora:
 # Requires setting up a Globus Compute endpoint on Aurora
 globus_compute:
   enabled: false  # Set to true to use Globus Compute instead of direct PBS
-  endpoint_id: "your-aurora-endpoint-id"  # Set after endpoint registration
+  endpoint_id: "12b14478-2b82-4d1a-8588-cc3a956735d1"  # Set after endpoint registration
   endpoint_config_path: "config/globus_endpoint.yaml"
   # Authentication method for Globus Compute
   # Options: "native_client", "confidential_client", "client_credentials"
