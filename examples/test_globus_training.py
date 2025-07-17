@@ -43,31 +43,42 @@ def setup_logging(log_level: str = "INFO") -> None:
 
 
 def generate_random_hyperparameters(job_id: str, base_data_dir: str = "/lus/flare/projects/datascience/parton/data") -> Dict[str, Any]:
-   """Generate random hyperparameters for training."""
+   """
+   Generate random hyperparameters for training.
+   
+   Supported model types (from src/training/model.py get_model function):
+   - "custom": CustomCNN with configurable hidden_size and num_layers
+   - "resnet18", "resnet34", "resnet50": ResNet variants adapted for CIFAR-100
+   - "vgg16": VGG16 adapted for CIFAR-100  
+   - "densenet121": DenseNet121 adapted for CIFAR-100
+   
+   Note: Trainer class currently only supports Adam optimizer regardless of this parameter.
+   """
    
    # Learning rate: log scale between 1e-4 and 1e-2
    learning_rate = 10 ** random.uniform(-4, -2)
    
    # Batch size: choose from common values
-   batch_size = random.choice([32, 64, 128])
+   batch_size = random.choice([32, 64, 128])  # Keeping smaller sizes for faster testing
    
-   # Model type: choose from available models
-   model_type = random.choice(["resnet18", "custom_cnn"])
+   # Model type: choose from available models (must match get_model() function)
+   model_type = random.choice(["resnet18", "custom", "resnet34", "resnet50", "vgg16", "densenet121"])
    
-   # Optimizer: choose from available optimizers
-   optimizer = random.choice(["adam", "sgd"])
+   # Note: optimizer is hardcoded as Adam in Trainer class, so this parameter is not used
+   # Keeping for potential future support
+   optimizer = "adam"  # Only Adam is currently supported
    
-   # Dropout rate: uniform between 0.1 and 0.5
+   # Dropout rate: uniform between 0.1 and 0.5 (within validation range [0.0, 0.8])
    dropout_rate = random.uniform(0.1, 0.5)
    
    # Weight decay: log scale between 1e-5 and 1e-3
    weight_decay = 10 ** random.uniform(-5, -3)
    
-   # Hidden size for custom models
-   hidden_size = random.choice([512, 1024, 2048])
+   # Hidden size for custom models (only used by "custom" model type)
+   hidden_size = random.choice([256, 512, 1024, 2048])  # Matches validation choices
    
-   # Number of layers for custom models
-   num_layers = random.choice([2, 3, 4])
+   # Number of layers for custom models (only used by "custom" model type)  
+   num_layers = random.choice([2, 3, 4])  # Within validation range [1, 10]
    
    return {
       "job_id": job_id,
@@ -172,6 +183,53 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
       logger.error(f"❌ VALIDATION FAILED: No jobs completed successfully")
 
 
+def validate_hyperparameters(hparams: Dict[str, Any]) -> bool:
+   """
+   Validate that generated hyperparameters are compatible with the training pipeline.
+   
+   Returns:
+      True if all parameters are valid, False otherwise
+   """
+   logger = logging.getLogger(__name__)
+   
+   # Check model type is supported
+   supported_models = ["custom", "resnet18", "resnet34", "resnet50", "vgg16", "densenet121"]
+   if hparams.get("model_type") not in supported_models:
+      logger.error(f"Unsupported model type: {hparams.get('model_type')}. Supported: {supported_models}")
+      return False
+   
+   # Check reasonable parameter ranges
+   lr = hparams.get("learning_rate", 0)
+   if not (1e-6 <= lr <= 1):
+      logger.error(f"Learning rate {lr} outside reasonable range [1e-6, 1]")
+      return False
+   
+   batch_size = hparams.get("batch_size", 0)
+   if batch_size not in [16, 32, 64, 128, 256]:
+      logger.error(f"Batch size {batch_size} not in common values [16, 32, 64, 128, 256]")
+      return False
+   
+   dropout = hparams.get("dropout_rate", 0)
+   if not (0.0 <= dropout <= 0.8):
+      logger.error(f"Dropout rate {dropout} outside reasonable range [0.0, 0.8]")
+      return False
+   
+   # Validate custom model parameters if using custom model
+   if hparams.get("model_type") == "custom":
+      hidden_size = hparams.get("hidden_size", 0)
+      if hidden_size not in [256, 512, 1024, 2048, 4096]:
+         logger.error(f"Hidden size {hidden_size} not in common values for custom model")
+         return False
+      
+      num_layers = hparams.get("num_layers", 0)
+      if not (1 <= num_layers <= 10):
+         logger.error(f"Number of layers {num_layers} outside reasonable range [1, 10]")
+         return False
+   
+   logger.debug("Hyperparameters validation passed")
+   return True
+
+
 def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: int, 
                                 base_output_dir: str, repo_path: str, data_dir: str,
                                 max_wait_minutes: int = 30) -> bool:
@@ -205,6 +263,12 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
       for i in range(num_jobs):
          job_id = f"test_{i+1:03d}"
          hparams = generate_random_hyperparameters(job_id, data_dir)
+         
+         # Validate hyperparameters before proceeding
+         if not validate_hyperparameters(hparams):
+            logger.error(f"Invalid hyperparameters generated for job {job_id}: {hparams}")
+            return False
+         
          job_config = create_job_config(job_id, hparams, num_epochs, base_output_dir, repo_path)
          job_configs.append(job_config)
       
