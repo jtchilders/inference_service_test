@@ -56,16 +56,29 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
    if not isinstance(job_config, dict):
       raise TypeError(f"job_config must be a dictionary, got {type(job_config)}")
    
-   # Setup logging
-   logging.basicConfig(
-      level=logging.INFO,
-      format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-      datefmt="%d-%m %H:%M"
-   )
-   logger = logging.getLogger(__name__)
-   
    job_id = job_config["job_id"]
    output_dir = job_config["output_dir"]
+   
+   # Suppress TensorFlow/CUDA noise messages early
+   os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Only show errors
+   os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN custom operations
+   
+   # Setup global logging with job ID included
+   log_format = f"%(asctime)s - [{job_id}] - %(name)s - %(levelname)s - %(message)s"
+   date_format = "%d-%m %H:%M"
+   
+   # Configure root logger to use job-specific format
+   # This will affect all loggers in this process
+   logging.basicConfig(
+      level=logging.INFO,
+      format=log_format,
+      datefmt=date_format,
+      handlers=[logging.StreamHandler(sys.stdout)],
+      force=True  # Force reconfiguration even if already configured
+   )
+   
+   # Create main logger for this function
+   logger = logging.getLogger(f"training_job_{job_id}")
    
    logger.info(f"Starting training job: {job_id}")
    
