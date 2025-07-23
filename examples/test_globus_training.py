@@ -11,6 +11,7 @@ import os
 import random
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
@@ -136,13 +137,15 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
    logger = logging.getLogger(__name__)
    
    logger.info("\nTraining Results Summary:")
-   logger.info("=" * 120)
-   logger.info(f"{'Job ID':<15} {'Status':<10} {'Duration':<10} {'AUC':<8} {'Accuracy':<10} {'Host':<20}")
-   logger.info("=" * 120)
+   logger.info("=" * 140)
+   logger.info(f"{'Job ID':<15} {'Status':<12} {'Duration':<10} {'AUC':<8} {'Accuracy':<10} {'Host':<20} {'Error Category':<20}")
+   logger.info("=" * 140)
    
    successful_jobs = 0
+   failed_jobs = 0
    total_auc = 0.0
    total_accuracy = 0.0
+   error_summary = {}
    
    for result in results:
       status = result.get('status', 'unknown')
@@ -152,26 +155,51 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
       hostname = result.get('hostname', 'unknown')
       job_id = result.get('job_id', 'unknown')
       
-      logger.info(f"{job_id:<15} {status:<10} {duration:<10.1f}s {auc:<8.4f} "
-                 f"{accuracy:<10.4f} {hostname:<20}")
+      # Extract error information
+      error_info = result.get('error_info', {})
+      if error_info:
+         error_category = error_info.get('error_category', 'unknown')
+         error_severity = error_info.get('error_severity', 'unknown')
+         error_stage = error_info.get('execution_stage', 'unknown')
+         
+         # Track error statistics
+         if error_category not in error_summary:
+            error_summary[error_category] = []
+         error_summary[error_category].append({
+            'job_id': job_id,
+            'severity': error_severity,
+            'stage': error_stage,
+            'description': error_info.get('error_description', 'No description')
+         })
+         
+         error_display = f"{error_category} ({error_severity})"
+      else:
+         error_display = "None"
+      
+      logger.info(f"{job_id:<15} {status:<12} {duration:<10.1f}s {auc:<8.4f} "
+                 f"{accuracy:<10.4f} {hostname:<20} {error_display:<20}")
       
       if status == 'completed':
          successful_jobs += 1
          total_auc += auc
          total_accuracy += accuracy
+      else:
+         failed_jobs += 1
    
-   logger.info("=" * 120)
+   logger.info("=" * 140)
    
    # Summary statistics
+   total_jobs = len(results)
    if successful_jobs > 0:
       avg_auc = total_auc / successful_jobs
       avg_accuracy = total_accuracy / successful_jobs
-      success_rate = (successful_jobs / len(results)) * 100
+      success_rate = (successful_jobs / total_jobs) * 100
       
       logger.info(f"\nSummary Statistics:")
-      logger.info(f"  Successful Jobs: {successful_jobs}/{len(results)} ({success_rate:.1f}%)")
-      logger.info(f"  Average AUC: {avg_auc:.4f}")
-      logger.info(f"  Average Accuracy: {avg_accuracy:.4f}")
+      logger.info(f"  Successful Jobs: {successful_jobs}/{total_jobs} ({success_rate:.1f}%)")
+      logger.info(f"  Failed Jobs: {failed_jobs}/{total_jobs} ({(failed_jobs/total_jobs)*100:.1f}%)")
+      logger.info(f"  Average AUC (successful): {avg_auc:.4f}")
+      logger.info(f"  Average Accuracy (successful): {avg_accuracy:.4f}")
       
       # Validation criteria
       min_expected_auc = 0.01  # Very low threshold for short training
@@ -181,6 +209,134 @@ def print_results_table(results: List[Dict[str, Any]]) -> None:
          logger.warning(f"⚠️  VALIDATION CONCERNS: Success rate or AUC below expectations")
    else:
       logger.error(f"❌ VALIDATION FAILED: No jobs completed successfully")
+   
+   # Detailed error analysis
+   if error_summary:
+      logger.info(f"\n📊 Error Analysis:")
+      logger.info("=" * 80)
+      
+      for category, errors in error_summary.items():
+         count = len(errors)
+         severity_counts = {}
+         stage_counts = {}
+         
+         for error in errors:
+            severity = error['severity']
+            stage = error['stage']
+            
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+         
+         logger.info(f"\n🔍 {category.upper().replace('_', ' ')} ({count} jobs):")
+         
+         # Show severity breakdown
+         severity_str = ", ".join([f"{sev}: {cnt}" for sev, cnt in severity_counts.items()])
+         logger.info(f"   Severity breakdown: {severity_str}")
+         
+         # Show stage breakdown
+         stage_str = ", ".join([f"{stage}: {cnt}" for stage, cnt in stage_counts.items()])
+         logger.info(f"   Failure stages: {stage_str}")
+         
+         # Show specific examples (up to 3)
+         logger.info(f"   Examples:")
+         for i, error in enumerate(errors[:3]):
+            logger.info(f"     • Job {error['job_id']}: {error['description']}")
+         if len(errors) > 3:
+            logger.info(f"     ... and {len(errors) - 3} more")
+      
+      # Provide diagnostic recommendations
+      logger.info(f"\n💡 Diagnostic Recommendations:")
+      logger.info("-" * 50)
+      
+      if 'environment_error' in error_summary:
+         logger.info("🔧 Environment Errors:")
+         logger.info("   • Check that all required packages are installed on Aurora")
+         logger.info("   • Verify the virtual environment or module loading")
+         logger.info("   • Ensure correct Python path and import statements")
+      
+      if 'data_access_error' in error_summary:
+         logger.info("📁 Data Access Errors:")
+         logger.info("   • Verify CIFAR-100 data is available at the specified path")
+         logger.info("   • Check file permissions and storage access on Aurora")
+         logger.info(f"   • Consider setting CIFAR100_DATA_DIR environment variable")
+      
+      if 'resource_error' in error_summary:
+         logger.info("💾 Resource Errors:")
+         logger.info("   • Reduce batch size or model complexity")
+         logger.info("   • Check memory usage and available GPU/CPU resources")
+         logger.info("   • Consider requesting more resources in PBS job")
+      
+      if 'configuration_error' in error_summary:
+         logger.info("⚙️  Configuration Errors:")
+         logger.info("   • Validate hyperparameter ranges and data types")
+         logger.info("   • Check model compatibility with specified parameters")
+         logger.info("   • Review job configuration structure")
+      
+      if 'training_error' in error_summary:
+         logger.info("🎯 Training Errors:")
+         logger.info("   • These may be hyperparameter-related (not system issues)")
+         logger.info("   • Check for numerical instability (learning rate too high)")
+         logger.info("   • Verify model architecture compatibility")
+      
+      if 'network_error' in error_summary:
+         logger.info("🌐 Network Errors:")
+         logger.info("   • Check Globus Compute endpoint connectivity")
+         logger.info("   • Verify Aurora network access and firewall settings")
+         logger.info("   • Consider retry mechanisms for transient issues")
+
+
+def print_detailed_error_report(results: List[Dict[str, Any]], max_errors_per_category: int = 5) -> None:
+   """Print detailed error information for debugging."""
+   logger = logging.getLogger(__name__)
+   
+   failed_results = [r for r in results if r.get('status') == 'failed']
+   if not failed_results:
+      return
+   
+   logger.info(f"\n🔍 Detailed Error Report ({len(failed_results)} failed jobs):")
+   logger.info("=" * 120)
+   
+   # Group by error category
+   error_categories = {}
+   for result in failed_results:
+      error_info = result.get('error_info', {})
+      category = error_info.get('error_category', 'unknown')
+      
+      if category not in error_categories:
+         error_categories[category] = []
+      error_categories[category].append(result)
+   
+   for category, category_results in error_categories.items():
+      logger.info(f"\n📋 {category.upper().replace('_', ' ')} ERRORS ({len(category_results)} jobs):")
+      logger.info("-" * 80)
+      
+      # Show detailed information for first few errors in category
+      for i, result in enumerate(category_results[:max_errors_per_category]):
+         error_info = result.get('error_info', {})
+         job_id = result.get('job_id', 'unknown')
+         hostname = result.get('hostname', 'unknown')
+         stage = error_info.get('execution_stage', 'unknown')
+         severity = error_info.get('error_severity', 'unknown')
+         description = error_info.get('error_description', 'No description')
+         error_msg = error_info.get('error_message', 'No message')
+         
+         logger.info(f"\n  Job {job_id} (Host: {hostname}):")
+         logger.info(f"    Stage: {stage}")
+         logger.info(f"    Severity: {severity}")
+         logger.info(f"    Description: {description}")
+         logger.info(f"    Error Message: {error_msg}")
+         
+         # Show traceback for critical errors or if requested
+         if severity == 'critical' or logger.level <= logging.DEBUG:
+            traceback_lines = error_info.get('full_traceback', '').strip().split('\n')
+            if traceback_lines and len(traceback_lines) > 1:
+               logger.info(f"    Traceback (last 5 lines):")
+               for line in traceback_lines[-5:]:
+                  logger.info(f"      {line}")
+      
+      if len(category_results) > max_errors_per_category:
+         remaining = len(category_results) - max_errors_per_category
+         logger.info(f"\n  ... and {remaining} more {category} errors (use --log-level DEBUG for full details)")
 
 
 def validate_hyperparameters(hparams: Dict[str, Any]) -> bool:
@@ -232,7 +388,7 @@ def validate_hyperparameters(hparams: Dict[str, Any]) -> bool:
 
 def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: int, 
                                 base_output_dir: str, repo_path: str, data_dir: str,
-                                max_wait_minutes: int = 30) -> bool:
+                                max_wait_minutes: int = 30, show_detailed_errors: bool = False) -> bool:
    """Test the complete Globus Compute training pipeline."""
    
    logger = logging.getLogger(__name__)
@@ -309,7 +465,15 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
                
                job_id = job_configs[i]['job_id']
                status = result.get('status', 'unknown')
-               logger.info(f"✅ Job {job_id} completed with status: {status}")
+               
+               if status == 'completed':
+                  auc = result.get('training_results', {}).get('auc', 0.0)
+                  logger.info(f"✅ Job {job_id} completed successfully (AUC: {auc:.4f})")
+               else:
+                  error_info = result.get('error_info', {})
+                  error_category = error_info.get('error_category', 'unknown')
+                  error_severity = error_info.get('error_severity', 'unknown')
+                  logger.warning(f"❌ Job {job_id} failed: {error_category} ({error_severity})")
                
             except Exception:
                # Task not ready yet, continue
@@ -334,13 +498,19 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
                   result = client.get_result(task_id)
                   result['task_id'] = task_id
                   completed_results.append(result)
-                  logger.info(f"✅ Job {job_id} completed (late)")
+                  status = result.get('status', 'unknown')
+                  logger.info(f"✅ Job {job_id} completed (late): {status}")
                except Exception as e:
                   logger.warning(f"⏱️  Job {job_id} still running or failed: {e}")
       
       # Display results
       if completed_results:
          print_results_table(completed_results)
+         
+         # Show detailed error report if there are failures and requested
+         failed_count = sum(1 for r in completed_results if r.get('status') == 'failed')
+         if failed_count > 0 and show_detailed_errors:
+            print_detailed_error_report(completed_results)
          
          # Determine overall success
          successful_jobs = sum(1 for r in completed_results if r.get('status') == 'completed')
@@ -353,6 +523,7 @@ def test_globus_training_pipeline(endpoint_id: str, num_jobs: int, num_epochs: i
       
    except Exception as e:
       logger.error(f"Error in training pipeline test: {e}")
+      logger.error(f"Full traceback: {traceback.format_exc()}")
       return False
 
 
@@ -381,6 +552,8 @@ def main():
                       help="Logging level")
    parser.add_argument("--seed", type=int, default=42,
                       help="Random seed for reproducible hyperparameters")
+   parser.add_argument("--show-detailed-errors", action="store_true",
+                      help="Show detailed error information for failed jobs")
    
    args = parser.parse_args()
    
@@ -419,7 +592,8 @@ def main():
       base_output_dir=args.output_dir,
       repo_path=args.repo_path,
       data_dir=args.data_dir,
-      max_wait_minutes=args.max_wait_minutes
+      max_wait_minutes=args.max_wait_minutes,
+      show_detailed_errors=args.show_detailed_errors
    )
    
    if success:

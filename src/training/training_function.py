@@ -9,9 +9,84 @@ import logging
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
+
+
+def categorize_error(exception: Exception, error_context: str = "") -> Dict[str, str]:
+   """
+   Categorize errors to help distinguish between different failure types.
+   
+   Returns:
+      Dict with 'category', 'severity', and 'description' keys
+   """
+   error_msg = str(exception).lower()
+   error_type = type(exception).__name__
+   
+   # Import/Module errors (usually environment setup issues)
+   if isinstance(exception, (ImportError, ModuleNotFoundError)):
+      return {
+         "category": "environment_error",
+         "severity": "critical", 
+         "description": f"Missing dependency or module: {exception}"
+      }
+   
+   # File/Data access errors
+   elif isinstance(exception, (FileNotFoundError, PermissionError, OSError)):
+      if "data" in error_msg or "cifar" in error_msg:
+         return {
+            "category": "data_access_error",
+            "severity": "critical",
+            "description": f"Cannot access training data: {exception}"
+         }
+      else:
+         return {
+            "category": "filesystem_error", 
+            "severity": "high",
+            "description": f"File system issue: {exception}"
+         }
+   
+   # Memory/Resource errors
+   elif isinstance(exception, (MemoryError, RuntimeError)) and any(x in error_msg for x in ["memory", "cuda", "out of memory", "oom"]):
+      return {
+         "category": "resource_error",
+         "severity": "high",
+         "description": f"Insufficient compute resources: {exception}"
+      }
+   
+   # Configuration/Parameter errors  
+   elif isinstance(exception, (ValueError, TypeError, KeyError)) and any(x in error_msg for x in ["parameter", "config", "hyperparameter", "argument"]):
+      return {
+         "category": "configuration_error",
+         "severity": "medium",
+         "description": f"Invalid configuration or parameters: {exception}"
+      }
+   
+   # Training-specific errors (model, optimizer, etc.)
+   elif "train" in error_context.lower() or any(x in error_msg for x in ["model", "optimizer", "loss", "gradient", "backward"]):
+      return {
+         "category": "training_error",
+         "severity": "medium", 
+         "description": f"Training process error: {exception}"
+      }
+   
+   # Network/Connection errors
+   elif isinstance(exception, (ConnectionError, TimeoutError)) or any(x in error_msg for x in ["connection", "timeout", "network"]):
+      return {
+         "category": "network_error",
+         "severity": "high",
+         "description": f"Network or connectivity issue: {exception}"
+      }
+   
+   # Generic/Unknown errors
+   else:
+      return {
+         "category": "unknown_error",
+         "severity": "medium",
+         "description": f"Unclassified error ({error_type}): {exception}"
+      }
 
 
 def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
@@ -84,8 +159,10 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
    
    # Record start time
    start_time = datetime.now()
+   execution_stage = "initialization"
    
    try:
+      execution_stage = "imports"
       # Import necessary modules (done inside function for serialization)
       import torch
       import torch.nn as nn
@@ -102,6 +179,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
          IPEX_AVAILABLE = False
          logger.warning("Intel PyTorch Extension (IPEX) not available")
       
+      execution_stage = "path_setup"
       # Add project path to sys.path for imports
       repo_path = job_config.get("repo_path", "/lus/flare/projects/datascience/parton/inference_service_test")
       if repo_path not in sys.path:
@@ -113,6 +191,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       from src.utils.data_utils import get_cifar100_dataloaders
       from src.utils.metrics import calculate_auc
       
+      execution_stage = "environment_setup"
       # Create output directory
       os.makedirs(output_dir, exist_ok=True)
       
@@ -131,6 +210,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       logger.info(f"Intel PyTorch Extension available: {IPEX_AVAILABLE}")
       logger.info(f"Intel GPU support: {hasattr(torch, 'xpu')}")
       
+      execution_stage = "parameter_extraction"
       # Extract hyperparameters
       model_type = job_config.get("model_type", "resnet18")
       hidden_size = job_config.get("hidden_size", 1024)
@@ -142,6 +222,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       weight_decay = job_config.get("weight_decay", 1e-4)
       num_workers = job_config.get("num_workers", 4)
       
+      execution_stage = "data_directory_setup"
       # Data directory: check environment variable first, then fall back to job config
       env_data_dir = os.getenv("CIFAR100_DATA_DIR")
       if env_data_dir:
@@ -163,6 +244,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
             error_msg += f" (from job config). Consider setting CIFAR100_DATA_DIR environment variable on the compute endpoint."
          raise FileNotFoundError(error_msg)
       
+      execution_stage = "data_loading"
       # Get data loaders
       logger.info("Loading CIFAR-100 dataset...")
       train_loader, val_loader, test_loader = get_cifar100_dataloaders(
@@ -174,6 +256,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       logger.info(f"Dataset loaded - Train: {len(train_loader.dataset)}, "
                  f"Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}")
       
+      execution_stage = "model_creation"
       # Create model
       logger.info(f"Creating {model_type} model...")
       model = get_model(
@@ -190,6 +273,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       logger.info(f"Model created - Total params: {total_params:,}, "
                  f"Trainable params: {trainable_params:,}")
       
+      execution_stage = "trainer_setup"
       # Create trainer with device auto-detection
       trainer = Trainer(
          model=model,
@@ -205,6 +289,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
          use_ipex=IPEX_AVAILABLE
       )
       
+      execution_stage = "training"
       # Start training
       logger.info("Starting training...")
       training_start = time.time()
@@ -214,10 +299,12 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       training_time = time.time() - training_start
       logger.info(f"Training completed in {training_time:.2f} seconds")
       
+      execution_stage = "evaluation"
       # Evaluate on test set
       logger.info("Evaluating on test set...")
       test_accuracy = trainer.evaluate()
       
+      execution_stage = "metrics_calculation"
       # Calculate AUC of accuracy curves
       train_accuracies = [epoch["train_accuracy"] for epoch in training_history]
       val_accuracies = [epoch["val_accuracy"] for epoch in training_history]
@@ -225,6 +312,7 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       train_auc = calculate_auc(train_accuracies)
       val_auc = calculate_auc(val_accuracies)
       
+      execution_stage = "results_preparation"
       # Prepare results
       end_time = datetime.now()
       execution_time = (end_time - start_time).total_seconds()
@@ -267,7 +355,8 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
             "intel_gpu_support": hasattr(torch, 'xpu'),
             "device_used": str(trainer.device) if hasattr(trainer, 'device') else 'unknown'
          },
-         "training_history": training_history
+         "training_history": training_history,
+         "error_info": None  # No errors for successful completion
       }
       
       # Save results to file
@@ -284,9 +373,15 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       return results
       
    except Exception as e:
-      # Handle errors
+      # Handle errors with detailed categorization
       end_time = datetime.now()
       execution_time = (end_time - start_time).total_seconds()
+      
+      # Get full traceback for debugging
+      full_traceback = traceback.format_exc()
+      
+      # Categorize the error
+      error_classification = categorize_error(e, execution_stage)
       
       error_results = {
          "job_id": job_id,
@@ -295,8 +390,15 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
          "execution_time": execution_time,
          "start_time": start_time.isoformat(),
          "end_time": end_time.isoformat(),
-         "error": str(e),
-         "error_type": type(e).__name__,
+         "error_info": {
+            "error_message": str(e),
+            "error_type": type(e).__name__,
+            "error_category": error_classification["category"],
+            "error_severity": error_classification["severity"], 
+            "error_description": error_classification["description"],
+            "execution_stage": execution_stage,
+            "full_traceback": full_traceback
+         },
          "hyperparameters": job_config,
          "training_results": {
             "auc": 0.0,  # Failed jobs have 0 AUC
@@ -312,5 +414,9 @@ def cifar100_training_function(*args, **kwargs) -> Dict[str, Any]:
       except:
          pass
       
-      logger.error(f"Training failed: {e}")
+      logger.error(f"Training failed in stage '{execution_stage}': {error_classification['description']}")
+      logger.error(f"Error category: {error_classification['category']} (severity: {error_classification['severity']})")
+      if error_classification["severity"] == "critical":
+         logger.error("This is a critical system error that likely requires infrastructure fixes.")
+      
       return error_results 
