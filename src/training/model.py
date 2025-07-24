@@ -136,9 +136,9 @@ class VGGCIFAR100(nn.Module):
                 dropout_rate: float = 0.2):
       super(VGGCIFAR100, self).__init__()
       
-      # Load pretrained VGG
+      # Load VGG without pretrained weights
       if model_type == "vgg16":
-         self.backbone = models.vgg16(pretrained=True)
+         self.backbone = models.vgg16(pretrained=False)
       else:
          raise ValueError(f"Unsupported VGG type: {model_type}")
       
@@ -160,9 +160,9 @@ class DenseNetCIFAR100(nn.Module):
                 dropout_rate: float = 0.2):
       super(DenseNetCIFAR100, self).__init__()
       
-      # Load pretrained DenseNet
+      # Load DenseNet without pretrained weights
       if model_type == "densenet121":
-         self.backbone = models.densenet121(pretrained=True)
+         self.backbone = models.densenet121(pretrained=False)
       else:
          raise ValueError(f"Unsupported DenseNet type: {model_type}")
       
