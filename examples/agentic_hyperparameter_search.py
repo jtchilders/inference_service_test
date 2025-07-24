@@ -20,7 +20,8 @@ from pathlib import Path
 from datetime import datetime
 
 # Add project path for imports
-sys.path.append(str(Path(__file__).parent.parent))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 # Import the main optimization script functionality
 from run_agentic_optimization import (
@@ -294,7 +295,9 @@ Examples:
    # Run validation checks
    logger.info("🔍 Running pre-flight checks...")
    
-   if not check_dependencies():
+   # Skip Globus Compute dependency for dry runs (local validation)
+   skip_globus_compute = args.dry_run
+   if not check_dependencies(skip_globus_compute=skip_globus_compute):
       logger.error("❌ Dependency check failed")
       print("\n❌ Missing required packages. Please install them and try again.")
       return 1

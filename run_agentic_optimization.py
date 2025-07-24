@@ -19,11 +19,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 
-# Add src to path for imports
-sys.path.append(str(Path(__file__).parent / "src"))
+# Add src to path for imports and handle module conflicts
+src_path = str(Path(__file__).parent / "src")
+if src_path not in sys.path:
+   sys.path.insert(0, src_path)  # Insert at beginning to take precedence
 
-from agents.parallel_auc_orchestrator import ParallelAUCOrchestrator
-from utils.inference_auth_token import get_access_token
+# Import with explicit module loading to avoid conflicts
+import importlib.util
+import types
+
+def load_module_from_path(module_name: str, file_path: str):
+   """Load a module from a specific file path."""
+   spec = importlib.util.spec_from_file_location(module_name, file_path)
+   module = importlib.util.module_from_spec(spec)
+   spec.loader.exec_module(module)
+   return module
+
+# Load our local modules
+_orchestrator_path = Path(__file__).parent / "src" / "agents" / "parallel_auc_orchestrator.py"
+_auth_path = Path(__file__).parent / "src" / "utils" / "inference_auth_token.py"
+
+orchestrator_module = load_module_from_path("parallel_auc_orchestrator", _orchestrator_path)
+auth_module = load_module_from_path("inference_auth_token", _auth_path)
+
+ParallelAUCOrchestrator = orchestrator_module.ParallelAUCOrchestrator
+get_access_token = auth_module.get_access_token
 
 
 def setup_logging(config: Dict[str, Any]) -> None:
@@ -152,31 +172,39 @@ def check_authentication() -> bool:
       return False
 
 
-def check_dependencies() -> bool:
+def check_dependencies(skip_globus_compute: bool = False) -> bool:
    """Check if all required dependencies are available."""
    
    logger = logging.getLogger(__name__)
    
+   # Core packages needed for all functionality
    required_packages = [
-      ("globus_compute_sdk", "globus-compute-sdk"),
       ("langchain_openai", "langchain-openai"),  
       ("langchain_core", "langchain-core"),
       ("langgraph", "langgraph"),
       ("matplotlib", "matplotlib"),
       ("seaborn", "seaborn"),
-      ("scikit-learn", "scikit-learn"),
+      ("sklearn", "scikit-learn"),
       ("scipy", "scipy"),
       ("numpy", "numpy"),
       ("pydantic", "pydantic"),
    ]
    
+   # Globus Compute is only needed for actual execution, not validation
+   if not skip_globus_compute:
+      required_packages.insert(0, ("globus_compute_sdk", "globus-compute-sdk"))
+   
    missing_packages = []
+   optional_missing = []
    
    for package_name, pip_name in required_packages:
       try:
          __import__(package_name)
       except ImportError:
-         missing_packages.append(pip_name)
+         if package_name == "globus_compute_sdk":
+            optional_missing.append(pip_name)
+         else:
+            missing_packages.append(pip_name)
    
    if missing_packages:
       logger.error("Missing required packages:")
@@ -185,7 +213,14 @@ def check_dependencies() -> bool:
       logger.error("Install with: pip install " + " ".join(missing_packages))
       return False
    
-   logger.info("All dependencies are available")
+   if optional_missing:
+      logger.warning("Optional packages missing (needed for Aurora execution):")
+      for package in optional_missing:
+         logger.warning(f"  - {package}")
+      logger.warning("Install with: pip install " + " ".join(optional_missing))
+      logger.warning("These are only needed when running on Aurora, not for local validation")
+   
+   logger.info("Core dependencies are available")
    return True
 
 
@@ -423,7 +458,9 @@ Examples:
    # Validation phase
    logger.info("Running pre-flight checks...")
    
-   if not check_dependencies():
+   # Skip Globus Compute dependency for dry runs (local validation)
+   skip_globus_compute = args.dry_run
+   if not check_dependencies(skip_globus_compute=skip_globus_compute):
       logger.error("Dependency check failed")
       return 1
    
