@@ -14,13 +14,11 @@ from datetime import datetime
 
 try:
    from globus_compute_sdk import Client, Executor
-   from globus_compute_sdk.serialize import CombinedSerializer
    GLOBUS_COMPUTE_AVAILABLE = True
 except ImportError:
    GLOBUS_COMPUTE_AVAILABLE = False
    Client = None
    Executor = None
-   CombinedSerializer = None
 
 
 class GlobusJobScheduler:
