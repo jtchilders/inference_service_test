@@ -480,17 +480,21 @@ Respond with ONLY a valid JSON object:
          return np.random.choice(values, p=weights)
       
       elif param_type == "log_uniform":
-         min_val = config["min"]
-         max_val = config["max"]
+         min_val = self._safe_float_convert(config["min"])
+         max_val = self._safe_float_convert(config["max"])
          log_min = np.log10(min_val)
          log_max = np.log10(max_val)
          return 10 ** np.random.uniform(log_min, log_max)
       
       elif param_type == "uniform":
-         return np.random.uniform(config["min"], config["max"])
+         min_val = self._safe_float_convert(config["min"])
+         max_val = self._safe_float_convert(config["max"])
+         return np.random.uniform(min_val, max_val)
       
       elif param_type == "int_uniform":
-         return np.random.randint(config["min"], config["max"] + 1)
+         min_val = self._safe_int_convert(config["min"])
+         max_val = self._safe_int_convert(config["max"])
+         return np.random.randint(min_val, max_val + 1)
       
       else:
          # Fallback to first value if available
@@ -514,21 +518,27 @@ Respond with ONLY a valid JSON object:
       elif param_type == "log_uniform":
          # Add noise in log space
          log_center = np.log10(center_value)
-         log_range = np.log10(config["max"]) - np.log10(config["min"])
+         min_val = self._safe_float_convert(config["min"])
+         max_val = self._safe_float_convert(config["max"])
+         log_range = np.log10(max_val) - np.log10(min_val)
          noise = np.random.normal(0, noise_factor * log_range)
-         new_log_val = np.clip(log_center + noise, np.log10(config["min"]), np.log10(config["max"]))
+         new_log_val = np.clip(log_center + noise, np.log10(min_val), np.log10(max_val))
          return 10 ** new_log_val
       
       elif param_type == "uniform":
-         param_range = config["max"] - config["min"]
+         min_val = self._safe_float_convert(config["min"])
+         max_val = self._safe_float_convert(config["max"])
+         param_range = max_val - min_val
          noise = np.random.normal(0, noise_factor * param_range)
-         return np.clip(center_value + noise, config["min"], config["max"])
+         return np.clip(center_value + noise, min_val, max_val)
       
       elif param_type == "int_uniform":
-         param_range = config["max"] - config["min"]
+         min_val = self._safe_int_convert(config["min"])
+         max_val = self._safe_int_convert(config["max"])
+         param_range = max_val - min_val
          noise = np.random.normal(0, noise_factor * param_range)
          new_val = round(center_value + noise)
-         return np.clip(new_val, config["min"], config["max"])
+         return np.clip(new_val, min_val, max_val)
       
       return center_value
    
@@ -549,13 +559,22 @@ Respond with ONLY a valid JSON object:
                   validated[param] = config["values"][0]  # Default to first value
             
             elif config.get("type") == "log_uniform":
-               validated[param] = np.clip(value, config["min"], config["max"])
+               min_val = self._safe_float_convert(config["min"])
+               max_val = self._safe_float_convert(config["max"])
+               safe_value = self._safe_float_convert(value)
+               validated[param] = np.clip(safe_value, min_val, max_val)
             
             elif config.get("type") == "uniform":
-               validated[param] = np.clip(value, config["min"], config["max"])
+               min_val = self._safe_float_convert(config["min"])
+               max_val = self._safe_float_convert(config["max"])
+               safe_value = self._safe_float_convert(value)
+               validated[param] = np.clip(safe_value, min_val, max_val)
             
             elif config.get("type") == "int_uniform":
-               validated[param] = int(np.clip(value, config["min"], config["max"]))
+               min_val = self._safe_int_convert(config["min"])
+               max_val = self._safe_int_convert(config["max"])
+               safe_value = self._safe_float_convert(value)  # Convert to float first for clipping
+               validated[param] = int(np.clip(safe_value, min_val, max_val))
             
             else:
                validated[param] = value
@@ -565,7 +584,14 @@ Respond with ONLY a valid JSON object:
             if "values" in config:
                validated[param] = config["values"][0]
             elif "initial_suggestions" in config:
-               validated[param] = config["initial_suggestions"][0]
+               # Safely convert initial suggestions which might be strings like "1e-4"
+               initial_value = config["initial_suggestions"][0]
+               if config.get("type") in ["log_uniform", "uniform"]:
+                  validated[param] = self._safe_float_convert(initial_value)
+               elif config.get("type") == "int_uniform":
+                  validated[param] = self._safe_int_convert(initial_value)
+               else:
+                  validated[param] = initial_value
             else:
                validated[param] = self._get_default_value(param)
       
@@ -584,6 +610,34 @@ Respond with ONLY a valid JSON object:
          "weight_decay": 1e-4
       }
       return defaults.get(param, 0.001)
+   
+   def _safe_float_convert(self, value: Any) -> float:
+      """Safely convert a value to float, handling string scientific notation."""
+      if isinstance(value, str):
+         try:
+            return float(value)
+         except ValueError:
+            self.logger.warning(f"Failed to convert '{value}' to float, using 0.0")
+            return 0.0
+      elif isinstance(value, (int, float)):
+         return float(value)
+      else:
+         self.logger.warning(f"Unexpected type for numeric conversion: {type(value)}, using 0.0")
+         return 0.0
+   
+   def _safe_int_convert(self, value: Any) -> int:
+      """Safely convert a value to int."""
+      if isinstance(value, str):
+         try:
+            return int(float(value))  # Convert through float to handle scientific notation
+         except ValueError:
+            self.logger.warning(f"Failed to convert '{value}' to int, using 0")
+            return 0
+      elif isinstance(value, (int, float)):
+         return int(value)
+      else:
+         self.logger.warning(f"Unexpected type for integer conversion: {type(value)}, using 0")
+         return 0
    
    def _generate_random_hyperparameters(self) -> Dict[str, Any]:
       """Generate random hyperparameters as fallback."""
@@ -788,10 +842,14 @@ Respond with ONLY a valid JSON object:
             if isinstance(value, str):
                radii[param] = 0.0  # Exact match for categorical
             elif config.get("type") == "log_uniform":
-               log_range = np.log10(config["max"]) - np.log10(config["min"])
+               min_val = self._safe_float_convert(config["min"])
+               max_val = self._safe_float_convert(config["max"])
+               log_range = np.log10(max_val) - np.log10(min_val)
                radii[param] = self.region_radius_factor * log_range
             else:
-               param_range = config.get("max", 1) - config.get("min", 0)
+               min_val = self._safe_float_convert(config.get("min", 0))
+               max_val = self._safe_float_convert(config.get("max", 1))
+               param_range = max_val - min_val
                radii[param] = self.region_radius_factor * param_range
       
       return radii
@@ -815,16 +873,20 @@ Respond with ONLY a valid JSON object:
                
                if config.get("type") == "log_uniform":
                   log_val = np.log10(value)
-                  log_range = np.log10(config["max"]) - np.log10(config["min"])
+                  min_val = self._safe_float_convert(config["min"])
+                  max_val = self._safe_float_convert(config["max"])
+                  log_range = np.log10(max_val) - np.log10(min_val)
                   noise = np.random.normal(0, noise_std * log_range)
-                  new_log_val = np.clip(log_val + noise, np.log10(config["min"]), np.log10(config["max"]))
+                  new_log_val = np.clip(log_val + noise, np.log10(min_val), np.log10(max_val))
                   noisy_params[param] = 10 ** new_log_val
                
                elif config.get("type") in ["uniform", "int_uniform"]:
-                  param_range = config["max"] - config["min"]
+                  min_val = self._safe_float_convert(config["min"])
+                  max_val = self._safe_float_convert(config["max"])
+                  param_range = max_val - min_val
                   noise = np.random.normal(0, noise_std * param_range)
                   new_val = value + noise
-                  new_val = np.clip(new_val, config["min"], config["max"])
+                  new_val = np.clip(new_val, min_val, max_val)
                   
                   if config.get("type") == "int_uniform":
                      new_val = int(round(new_val))

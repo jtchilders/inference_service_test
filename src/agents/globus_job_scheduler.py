@@ -268,10 +268,13 @@ class GlobusJobScheduler:
       try:
          task_id = self.submitted_jobs[job_id]["task_id"]
          
-         # Check task status
-         task_status = self.client.get_task_status(task_id)
+         # Check task status using the correct Globus Compute SDK method
+         task_info = self.client.get_task(task_id)
          
-         if task_status in ["success", "failed", "cancelled"]:
+         # Extract status from task info dict
+         task_status = task_info.get('status', 'unknown')
+         
+         if task_status in ["success", "failed", "cancelled", "completed"]:
             self.submitted_jobs[job_id]["status"] = task_status
             return True
          
