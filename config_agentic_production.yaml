@@ -1,0 +1,175 @@
+# Production Configuration for Agentic Hyperparameter Optimization
+# Optimized for parallel execution on Aurora via Globus Compute
+# Focus: Maximize AUC on CIFAR-100 dataset
+
+# Sophia LLM service configuration for hyperparameter suggestions
+sophia:
+  url: "https://data-portal-dev.cels.anl.gov/resource_server/sophia/vllm/v1"
+  model: "meta-llama/Llama-3.3-70B-Instruct"
+  temperature: 0.1  # Low temperature for consistent suggestions
+
+# Globus Compute configuration for parallel job execution
+globus_compute:
+  enabled: true
+  endpoint_id: "YOUR_AURORA_ENDPOINT_ID"  # Replace with your working endpoint ID
+  auth_method: "native_client"
+  function_timeout: 7200  # 2 hours timeout for longer training jobs
+  max_retries: 3
+  
+  # Parallel execution settings
+  parallel_jobs:
+    max_concurrent: 12  # Aurora has 6 GPUs × 2 tiles = 12 max parallel
+    initial_batch_size: 8  # Start with 8 parallel jobs for broad sampling
+    adaptive_scaling: true  # Adjust based on system load and success rate
+    job_spacing_seconds: 5  # Wait 5s between job submissions to avoid overload
+
+# Aurora working directories
+working_dirs:
+  aurora_base: "/lus/flare/projects/datascience/parton/workflows"
+  local_base: "results"
+  launch_iteration_pattern: "agentic_{timestamp}_{experiment_id}"
+  job_pattern: "job_{job_id}"
+  
+  # Archive completed experiments
+  archive_after_days: 30
+  keep_best_n_experiments: 10
+
+# Data configuration  
+data:
+  dir: "/lus/flare/projects/datascience/parton/data"  # Full Aurora path
+  dataset: "cifar100"
+  
+# Repository path on Aurora
+repository:
+  aurora_path: "/lus/flare/projects/datascience/parton/inference_service_test"
+
+# Hyperparameter optimization configuration
+optimization:
+  objective: "maximize_auc"  # Primary optimization target
+  max_iterations: 100  # Configurable, default 100 as requested
+  convergence_patience: 15  # Stop if no improvement for 15 iterations
+  
+  # Search strategy
+  strategy:
+    initial_phase: "broad_sampling"  # Start with broad parameter exploration
+    initial_samples: 20  # Number of random samples before LLM takes over
+    exploration_factor: 0.7  # Start with 70% exploration, 30% exploitation
+    exploitation_ramp: 0.05  # Increase exploitation by 5% every 10 iterations
+    min_exploration: 0.2  # Always maintain 20% exploration
+  
+  # AUC-specific settings
+  auc_optimization:
+    min_epochs: 5  # Minimum epochs for meaningful AUC
+    max_epochs: 100  # Maximum epochs (AUC includes time component)
+    early_stopping_patience: 10  # Stop training if no validation improvement
+    auc_improvement_threshold: 0.001  # Minimum improvement to continue search
+
+# Hyperparameter search space
+search_space:
+  model_type:
+    values: ["resnet18", "resnet34", "resnet50", "vgg16", "densenet121"]
+    weights: [0.3, 0.25, 0.2, 0.15, 0.1]  # Prefer simpler models initially
+  
+  learning_rate:
+    type: "log_uniform"
+    min: 1e-5
+    max: 1e-1
+    initial_suggestions: [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]
+  
+  batch_size:
+    values: [32, 64, 128, 256]
+    weights: [0.1, 0.3, 0.4, 0.2]  # Prefer moderate batch sizes
+  
+  num_epochs:
+    type: "int_uniform"
+    min: 5
+    max: 100
+    adaptive: true  # LLM can suggest based on learning curves
+  
+  dropout_rate:
+    type: "uniform"
+    min: 0.0
+    max: 0.6
+    initial_suggestions: [0.1, 0.2, 0.3, 0.4, 0.5]
+  
+  weight_decay:
+    type: "log_uniform"
+    min: 1e-6
+    max: 1e-2
+    initial_suggestions: [1e-5, 1e-4, 1e-3]
+  
+  # For custom models only
+  hidden_size:
+    values: [256, 512, 1024, 2048]
+    weights: [0.1, 0.3, 0.4, 0.2]
+  
+  num_layers:
+    values: [2, 3, 4, 5]
+    weights: [0.2, 0.4, 0.3, 0.1]
+
+# Real-time monitoring configuration
+monitoring:
+  update_interval_seconds: 30  # Update statistics every 30 seconds
+  plot_update_interval_seconds: 120  # Update plots every 2 minutes
+  
+  # Statistics tracking
+  statistics:
+    window_size: 20  # Calculate running stats over last 20 completed jobs
+    track_metrics: ["auc", "accuracy", "training_time", "convergence_epoch"]
+  
+  # Plotting configuration
+  plots:
+    enabled: true
+    output_dir: "results/plots"
+    formats: ["png", "pdf"]
+    
+    # Plot types
+    auc_progression: true  # AUC over iterations
+    hyperparameter_correlation: true  # Correlation matrix
+    convergence_analysis: true  # Training convergence patterns
+    exploration_heatmap: true  # Hyperparameter space exploration
+  
+  # Progress reporting
+  progress:
+    log_frequency: "every_job"  # Log progress after each completed job
+    detailed_report_frequency: 10  # Detailed analysis every 10 jobs
+    save_checkpoints: true  # Save experiment state for resumption
+
+# Logging configuration
+logging:
+  level: "INFO"
+  file_prefix: "agentic_optimization"
+  console_output: true
+  detailed_errors: true
+  
+  # Separate log files for different components
+  component_logs:
+    agent: "logs/hyperparameter_agent.log"
+    scheduler: "logs/job_scheduler.log"
+    monitoring: "logs/monitoring.log"
+    workflow: "logs/workflow.log"
+
+# Performance and resource settings
+performance:
+  job_submission_rate_limit: 2  # Max 2 job submissions per second
+  memory_usage_limit_gb: 16  # Limit local memory usage
+  disk_usage_limit_gb: 100  # Limit local disk for results
+  
+  # Auto-cleanup settings
+  cleanup:
+    failed_job_retention_hours: 24
+    successful_job_retention_days: 7
+    log_retention_days: 30
+
+# Experiment metadata
+experiment:
+  name: "CIFAR100_AUC_Optimization"
+  description: "Agentic hyperparameter optimization focused on maximizing AUC for CIFAR-100 classification"
+  tags: ["cifar100", "auc_optimization", "aurora", "globus_compute", "langchain"]
+  
+  # Results archiving
+  archive:
+    enabled: true
+    compress_results: true
+    include_plots: true
+    include_logs: true 
